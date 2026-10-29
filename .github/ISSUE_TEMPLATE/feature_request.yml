@@ -1,0 +1,21 @@
+name: Feature request
+description: Describe a workflow or interaction improvement
+title: "[Feature] "
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem or workflow
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behavior and alternatives
+    validations:
+      required: true
+  - type: textarea
+    id: reference
+    attributes:
+      label: Interaction reference and target platform
+      description: Include current IDEA behavior and implementation-plan scope if relevant

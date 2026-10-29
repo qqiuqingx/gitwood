@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Git Desk · IDEA 2025.3 交互原型</title>
+<style>
+:root { color-scheme:dark; --bg:#32302f; --panel:#32302f; --editor:#32302f; --header:#3c3f41; --line:#504945; --fg:#ebdbb2; --dim:#a89984; --selection:#504945; --blue:#83a598; --green:#b8bb26; --red:#fb4934; --accent:#d5c4a1; }
+* { box-sizing:border-box; }
+body { margin:0; padding:22px 26px 18px; background:#211f1e; color:var(--fg); font:13px -apple-system,BlinkMacSystemFont,"Helvetica Neue",sans-serif; }
+button,input,textarea { font:inherit; color:inherit; }
+button { cursor:pointer; }
+button:focus-visible,input:focus-visible,textarea:focus-visible,[tabindex]:focus-visible { outline:2px solid #83a598; outline-offset:-2px; }
+button:disabled { opacity:.35; cursor:default; }
+.intro { display:flex; justify-content:space-between; align-items:center; gap:20px; max-width:1740px; margin:0 auto 14px; }
+h1 { font-size:17px; margin:0 0 5px; font-weight:600; letter-spacing:.2px; }
+.intro p { margin:0; font-size:12px; color:#b8aea0; }
+.intro .tools { display:flex; gap:7px; }
+.guidebtn { border:1px solid #5c554d; padding:7px 11px; border-radius:5px; background:#35312d; white-space:nowrap; }
+.guidebtn:hover { background:#484139; }
+.window { position:relative; max-width:1740px; height:calc(100vh - 130px); min-height:650px; margin:auto; border:1px solid #62594e; border-radius:11px; overflow:hidden; box-shadow:0 20px 60px #0005; display:flex; flex-direction:column; }
+.titlebar { height:43px; flex:none; display:flex; align-items:center; gap:16px; padding:0 14px; background:linear-gradient(100deg,#3e4b4e,#3c3f41 46%); border-bottom:1px solid var(--line); }
+.lights { display:flex; gap:7px; margin-right:8px; }
+.lights i { display:block; width:11px; height:11px; background:#606564; border-radius:50%; }
+.repo,.branchbtn { border:0; background:transparent; padding:6px 7px; display:flex; align-items:center; gap:8px; }
+.repo:hover,.branchbtn:hover { background:#ffffff0b; border-radius:4px; }
+.repoicon { display:grid; place-items:center; width:22px; height:22px; border-radius:4px; background:#458588; color:#fdf6e3; font-weight:600; }
+.branchmark { font-size:20px; color:#b1b5b6; }
+.grow { flex:1; }
+.top-actions { display:flex; gap:6px; }
+.iconbtn { border:0; border-radius:4px; background:transparent; height:28px; min-width:28px; display:inline-grid; place-items:center; color:#bdae93; font-size:18px; padding:0 5px; }
+.iconbtn:hover { background:#ffffff10; }
+.body { flex:1; display:flex; min-height:0; }
+.rail { width:40px; flex:none; background:#32302f; border-right:1px solid var(--line); display:flex; flex-direction:column; align-items:center; gap:12px; padding:12px 0 6px; }
+.rail .iconbtn { height:32px; width:30px; font-size:21px; }
+.rail .active { background:#565b5b; color:#e0e0e0; }
+.workspace { flex:1; min-width:0; display:flex; flex-direction:column; }
+.upper { display:flex; flex:1; min-height:180px; overflow:hidden; }
+.commit { width:274px; min-width:210px; max-width:460px; flex:none; display:flex; flex-direction:column; }
+.split-v { width:4px; background:var(--line); cursor:col-resize; flex:none; }
+.split-h { height:4px; background:var(--line); cursor:row-resize; flex:none; }
+.split-v:hover,.split-h:hover { background:#83a598; }
+.tabs { height:39px; display:flex; align-items:stretch; border-bottom:1px solid var(--line); flex:none; padding-left:10px; gap:12px; }
+.tab { border:0; padding:0 3px; position:relative; background:transparent; }
+.tab.active::after { position:absolute; content:""; height:3px; bottom:-1px; left:0; right:0; background:#969f9f; border-radius:2px; }
+.toolbar { height:34px; display:flex; align-items:center; gap:2px; padding:0 7px; flex:none; }
+.filetree { overflow:auto; flex:1; min-height:85px; padding:0 9px 6px; }
+.group { display:flex; align-items:center; gap:5px; padding:5px 3px; white-space:nowrap; border-radius:4px; }
+.group.selected { background:var(--selection); }
+.group b { font-size:13px; font-weight:600; }
+.group em { font-style:normal; color:var(--dim); }
+input[type=checkbox] { appearance:none; width:14px; height:14px; border:1px solid #ebdbb2; border-radius:2px; background:transparent; flex:none; cursor:pointer; margin:0 3px; display:inline-grid; place-items:center; }
+input[type=checkbox]:checked::after { content:"✓"; font-size:12px; color:#ebdbb2; line-height:1; }
+.file { display:flex; align-items:center; height:27px; gap:5px; padding-left:27px; border-radius:3px; cursor:default; white-space:nowrap; overflow:hidden; }
+.file.selected { background:#48483a; }
+.file:hover { background:#ffffff08; }
+.file.selected:hover { background:#48483a; }
+.file .name { color:#83a598; overflow:hidden; text-overflow:ellipsis; }
+.file.untracked .name { color:#b8bb26; }
+.file .path { color:var(--dim); font-size:11px; }
+.fileicon { color:#7c9f9c; font-size:13px; }
+.commitform { flex:none; padding:8px 11px 9px; }
+.amend { display:flex; align-items:center; gap:5px; margin-bottom:8px; }
+.amend .history { margin-left:8px; font-size:17px; }
+textarea { width:100%; height:91px; min-height:48px; resize:vertical; background:#32302f; border:1px solid var(--line); border-radius:3px; padding:8px; font:12px "Maple Mono NF CN","SF Mono",Menlo,monospace; line-height:1.55; }
+textarea::placeholder { color:#928374; }
+.commitbuttons { display:flex; gap:6px; align-items:center; margin-top:8px; }
+.action { border:1px solid #665c54; border-radius:4px; background:#383431; padding:5px 9px; }
+.action:hover { background:#48413b; }
+.action.primary { background:#4b5756; border-color:#738782; }
+.diff { flex:1; min-width:0; display:flex; flex-direction:column; background:var(--editor); }
+.diff-tab { gap:6px; font-size:12px; background:#45413d; padding:0 12px; width:max-content; max-width:100%; }
+.diff-tab .close { margin-left:12px; color:#9b938a; }
+.diffbar { height:33px; padding:0 10px; display:flex; align-items:center; gap:12px; font-size:12px; border-bottom:1px solid var(--line); flex:none; }
+.subtle { color:var(--dim); }
+.plainselect { border:0; background:transparent; color:var(--fg); padding:3px; cursor:pointer; }
+.diffheads { display:grid; grid-template-columns:1fr 1fr; border-bottom:1px solid var(--line); color:#a89984; font-size:11px; background:#363330; flex:none; }
+.diffheads>div { padding:7px 12px; }
+.diffheads>div+div { border-left:1px solid var(--line); }
+.codegrid { display:flex; flex:1; min-height:0; overflow:hidden; }
+.codepane { width:50%; overflow:auto; min-width:0; font:12px/23px "Maple Mono NF CN","SF Mono",Menlo,monospace; padding:8px 0 28px; }
+.codepane+ .codepane { border-left:1px solid #665c54; }
+.codeline { display:flex; min-width:max-content; min-height:23px; padding-right:20px; white-space:pre; }
+.ln { width:40px; flex:none; text-align:right; color:#928374; padding:0 10px 0 0; user-select:none; }
+.code { padding-left:7px; }
+.codeline.add { background:#46513b; }
+.codeline.del { background:#5b3d36; }
+.codeline.blank { background:#3b3733; }
+.codeline.hot { box-shadow:inset 3px 0 #d5c4a1; }
+.kw { color:#fb4934; }.type { color:#8ec07c; }.str { color:#b8bb26; }.comment { color:#928374; font-style:italic; }
+.log { height:41%; min-height:170px; max-height:75%; display:flex; flex-direction:column; flex:none; }
+.logtabs { height:34px; }
+.logbody { display:flex; flex:1; min-height:0; }
+.branches { width:222px; min-width:160px; flex:none; border-right:1px solid var(--line); padding:8px 7px; overflow:auto; }
+.branchrow { padding:5px 7px; cursor:default; border-radius:3px; display:flex; align-items:center; gap:7px; white-space:nowrap; }
+.branchrow:hover { background:#ffffff08; }
+.branchrow.selected { background:#4b4d43; }
+.branchrow.indent { padding-left:26px; }.branchrow.indent2 { padding-left:43px; }
+.star { color:#d5b563; }
+.logcenter { flex:1; min-width:0; display:flex; flex-direction:column; }
+.logfilter { display:flex; height:35px; flex:none; padding:3px 7px; gap:8px; align-items:center; border-bottom:1px solid var(--line); }
+.search { background:#363330; border:1px solid #665c54; border-radius:3px; padding:5px 8px; width:190px; min-width:90px; }
+.filterbtn { background:transparent; border:0; padding:4px 1px; white-space:nowrap; }
+.logscroll { flex:1; overflow:auto; position:relative; }
+.logrow { display:grid; grid-template-columns:59px minmax(230px,1fr) 90px 108px; min-width:570px; align-items:center; height:27px; cursor:default; white-space:nowrap; }
+.logrow:hover { background:#ffffff06; }
+.logrow.selected { background:#3c4c50; }
+.graph { height:27px; position:relative; }
+.graph svg { position:absolute; top:0; left:0; width:59px; height:27px; }
+.subject { padding-left:3px; overflow:hidden; text-overflow:ellipsis; display:flex; gap:8px; align-items:center; }
+.subject .message { overflow:hidden; text-overflow:ellipsis; }
+.ref { border:1px solid #6b8e77; background:#3e4a3d; border-radius:3px; font-size:10px; padding:1px 5px; color:#b8c997; flex:none; }
+.author,.date { font-size:11px; color:#c7b99a; padding-left:8px; overflow:hidden; text-overflow:ellipsis; }
+.logdetails { width:264px; min-width:180px; max-width:360px; flex:none; border-left:1px solid var(--line); display:flex; flex-direction:column; }
+.changed { flex:1; overflow:auto; min-height:60px; }
+.changed .file { padding:0 10px; height:26px; }
+.details-text { border-top:1px solid var(--line); padding:10px 12px; min-height:91px; font-size:11px; line-height:1.7; }
+.details-text strong { font-size:12px; font-weight:500; }
+.hash { color:#83a598; }
+.statusbar { height:23px; padding:0 10px; border-top:1px solid var(--line); display:flex; gap:15px; align-items:center; font-size:11px; flex:none; }
+.popup { position:absolute; z-index:20; top:40px; left:202px; width:330px; background:#3b3835; border:1px solid #71665a; border-radius:5px; box-shadow:0 10px 30px #0007; padding:6px 0; }
+.popup[hidden],.context[hidden],.veil[hidden],.toast[hidden],.hidden { display:none!important; }
+.popup .search { width:calc(100% - 16px); margin:1px 8px 5px; }
+.popupitem { border:0; background:transparent; width:100%; text-align:left; padding:6px 14px; display:flex; align-items:center; gap:10px; font-size:12px; }
+.popupitem:hover,.popupitem:focus { background:#504945; outline:none; }
+.popupitem .key { margin-left:auto; color:#a89984; font-size:11px; }
+.poplabel { color:#a89984; font-size:10px; padding:8px 14px 4px; border-top:1px solid var(--line); margin-top:5px; }
+.popupitem.nested { padding-left:29px; }
+.context { position:fixed; z-index:50; min-width:240px; background:#3b3835; border:1px solid #71665a; border-radius:4px; padding:5px 0; box-shadow:0 8px 30px #0008; }
+.context hr { border:0; border-top:1px solid var(--line); margin:4px 0; }
+.toast { position:absolute; bottom:32px; right:12px; z-index:40; background:#43473a; border:1px solid #7c8358; padding:11px 16px; border-radius:5px; max-width:430px; box-shadow:0 5px 20px #0005; font-size:12px; }
+.veil { position:absolute; inset:43px 0 23px; z-index:35; background:#0007; display:flex; align-items:center; justify-content:center; }
+.dialog { width:470px; background:#383431; border:1px solid #7b7063; border-radius:7px; box-shadow:0 15px 50px #0008; padding:20px; }
+.dialog h2 { font-size:15px; margin:0 0 16px; font-weight:600; }
+.dialog p { font-size:12px; line-height:1.8; color:#d5c4a1; }
+.dialog ul { padding-left:20px; line-height:1.9; font-size:12px; }
+.dialogfooter { display:flex; justify-content:flex-end; gap:8px; margin-top:20px; }
+.footnote { max-width:1740px; margin:9px auto 0; display:flex; justify-content:space-between; color:#a89984; font-size:11px; }
+.diffmax .commit,.diffmax #commitSplit,.diffmax .log,.diffmax #logSplit { display:none; }
+@media(max-width:1150px) { body { padding:12px; }.intro p { max-width:510px; }.intro .tools { gap:4px; }.commit { width:235px; }.branches { width:172px; }.logdetails { width:215px; }.logfilter { gap:4px; }.search { width:145px; }.date { padding:0; }.logrow { grid-template-columns:50px minmax(230px,1fr) 77px 90px; }.window { height:calc(100vh - 118px); }.codepane { font-size:11px; }.logfilter .optional { display:none; } }
+</style>
+</head>
+<body>
+<header class="intro"><div><h1>Git Desk · IDEA 2025.3 交互原型</h1><p>参照本机 IDEA 的布局与实际配色 · 演示数据 · 本页不执行 Git 命令</p></div><div class="tools"><button class="guidebtn" id="showCommit">Commit + Diff</button><button class="guidebtn" id="showLog">Git Log</button><button class="guidebtn" id="showBranch">分支弹窗</button><button class="guidebtn" id="showGuide">对照要点</button></div></header>
+<main class="window" id="app">
+  <header class="titlebar"><span class="lights"><i></i><i></i><i></i></span><button class="repo" id="repo"><span class="repoicon">G</span><strong>git-desk-demo</strong><span class="subtle">⌄</span></button><button class="branchbtn" id="branchToggle" aria-expanded="false"><span class="branchmark">⑂</span><strong>feature/native-git</strong><span class="subtle">⌄</span></button><span class="grow"></span><div class="top-actions"><button class="iconbtn" title="Update Project" data-demo="Update Project">↓</button><button class="iconbtn" title="Push · ⇧⌘K" data-demo="Push">↑</button><button class="iconbtn" title="Refresh" id="refresh">⟳</button><button class="iconbtn" title="Settings" id="settings">⚙</button></div></header>
+  <div class="body"><nav class="rail"><button class="iconbtn" title="Repositories" id="repositories">▱</button><button class="iconbtn active" title="Commit · ⌘0" id="commitToggle">⊖</button><div class="grow"></div><button class="iconbtn active" title="Git · ⌘9" id="logToggle">⑂</button></nav>
+  <section class="workspace"><div class="upper" id="upper">
+    <aside class="commit" id="commitPane"><div class="tabs"><button class="tab active">Commit</button><button class="tab" data-demo="Shelf">Shelf</button></div><div class="toolbar"><button class="iconbtn" title="Refresh" data-refresh>⟳</button><button class="iconbtn" title="Rollback…" data-demo="Rollback…">↶</button><button class="iconbtn" title="Shelve Changes" data-demo="Shelve Changes">♧</button><button class="iconbtn" title="View Options" data-demo="View Options">◉</button><span class="grow"></span><button class="iconbtn" id="expand" title="Expand All">⌄</button></div>
+      <div class="filetree" id="filetree"><div class="group selected"><span>⌄</span><input type="checkbox" id="allFiles" aria-label="选择全部变更"><b>Changes</b><em>3 files</em></div><div id="trackedFiles"></div><div class="group"><button class="plainselect" id="untrackedToggle" aria-expanded="true">⌄</button><input type="checkbox" id="allUntracked" aria-label="选择未跟踪文件"><span>Unversioned Files</span><em>1 file</em></div><div id="untrackedFiles"></div></div>
+      <div class="commitform"><label class="amend"><input type="checkbox" id="amend"> Amend <span class="history subtle" title="Commit Message History">◷</span></label><textarea id="message" aria-label="Commit Message" placeholder="Commit message"></textarea><div class="commitbuttons"><button class="action" id="commitButton">Commit</button><button class="action" id="commitPush">Commit and Push…</button><span class="grow"></span><button class="iconbtn" title="Show Commit Options" id="commitOptions">⚙</button></div></div>
+    </aside><div class="split-v" id="commitSplit" role="separator" aria-label="调整 Commit 宽度"></div>
+    <section class="diff" id="diffPane"><div class="tabs" style="padding:0;gap:0"><button class="tab active diff-tab" id="diffTab"><span class="fileicon">◇</span><span id="diffFilename">RepositoryStore.swift</span><span class="close">×</span></button><span class="grow"></span><button class="iconbtn" id="maximize" title="切换 Diff 最大化 · ⌘D">⛶</button></div><div class="diffbar"><button class="iconbtn" id="prevDiff" title="Previous Difference · ⇧F7">↑</button><button class="iconbtn" id="nextDiff" title="Next Difference · F7">↓</button><span class="subtle" id="diffCount">2 differences</span><span class="grow"></span><button class="plainselect" id="ignoreWhitespace">Do not ignore ⌄</button><button class="plainselect" id="viewerMode">Side-by-side viewer ⌄</button></div><div class="diffheads"><div id="leftTitle">HEAD · RepositoryStore.swift</div><div id="rightTitle">Local · RepositoryStore.swift</div></div><div class="codegrid"><div class="codepane" id="before"></div><div class="codepane" id="after"></div></div></section>
+  </div><div class="split-h" id="logSplit" role="separator" aria-label="调整 Git Log 高度"></div>
+  <section class="log" id="logPane"><div class="tabs logtabs"><strong style="align-self:center;font-size:12px">Git</strong><button class="tab active">Log</button><span class="grow"></span><button class="iconbtn" id="hideLog" title="Hide Git">−</button></div><div class="logbody"><aside class="branches" id="branchTree"><div class="branchrow" data-branch="all">HEAD (Current Branch)</div><div class="branchrow">⌄ &nbsp; Local</div><div class="branchrow indent" data-branch="main"><span class="star">★</span> main</div><div class="branchrow indent">⌄ &nbsp; ▱ feature</div><div class="branchrow indent2 selected" data-branch="feature/native-git">⑂ &nbsp; native-git</div><div class="branchrow">⌄ &nbsp; Remote</div><div class="branchrow indent">⌄ &nbsp; ▱ origin</div><div class="branchrow indent2" data-branch="origin/main">⑂ &nbsp; main</div><div class="branchrow indent2" data-branch="origin/feature/native-git">⑂ &nbsp; feature/native-git</div><div class="branchrow">⌄ &nbsp; Tags</div><div class="branchrow indent" data-branch="v0.1.0">◇ &nbsp; v0.1.0</div></aside>
+  <section class="logcenter"><div class="logfilter"><input class="search" id="logSearch" placeholder="⌕  Text or hash" aria-label="Filter by Commit Message or Hashes"><button class="filterbtn" id="branchFilter">Branch ⌄</button><button class="filterbtn" data-demo="User filter">User ⌄</button><button class="filterbtn" data-demo="Date filter">Date ⌄</button><button class="filterbtn optional" data-demo="Paths filter">Paths ⌄</button><span class="grow"></span><button class="iconbtn" title="Refresh" data-refresh>⟳</button><button class="iconbtn" title="Go To Hash/Branch/Tag · ⌘F" id="goHash">⌕</button></div><div class="logscroll" id="logList" role="listbox" aria-label="Git Log" tabindex="0"></div></section>
+  <aside class="logdetails"><div class="toolbar"><button class="iconbtn" title="Show Diff · ⌘D" id="detailDiff">⇄</button><button class="iconbtn" title="Revert Selected Changes" data-demo="Revert Selected Changes">↶</button><span class="grow"></span><span class="subtle" id="changedCount" style="font-size:11px">2 files</span></div><div class="changed" id="changedFiles"></div><div class="details-text" id="commitDetails"></div></aside></div></section>
+  </section></div><footer class="statusbar"><span>▱ &nbsp; git-desk-demo</span><span class="subtle" id="status">3 modified · 1 unversioned</span><span class="grow"></span><span id="selectionStatus">0 files selected</span><span>LF</span><span>UTF-8</span></footer>
+  <div class="popup" id="branchPopup" hidden><input class="search" id="branchSearch" placeholder="Search branches and actions" aria-label="Search branches and actions"><button class="popupitem" data-demo="Update Project">↓ &nbsp; Update Project…<span class="key">⌘T</span></button><button class="popupitem" id="popupCommit">✓ &nbsp; Commit…<span class="key">⌘K</span></button><button class="popupitem" data-demo="Push">↑ &nbsp; Push…<span class="key">⇧⌘K</span></button><button class="popupitem" data-demo="New Branch">＋ &nbsp; New Branch…</button><button class="popupitem" data-demo="Checkout Tag or Revision">⑂ &nbsp; Checkout Tag or Revision…</button><div class="poplabel">Recent</div><div id="popupBranches"></div><div class="poplabel">Remote</div><button class="popupitem branch-option nested" data-popupbranch="origin/main">⑂ &nbsp; origin/main</button></div>
+  <div class="veil" id="dialogVeil" hidden><div class="dialog" role="dialog" aria-modal="true" aria-labelledby="dialogTitle"><h2 id="dialogTitle"></h2><div id="dialogBody"></div><div class="dialogfooter"><button class="action" id="dialogClose">关闭</button></div></div></div><div class="toast" id="toast" role="status" hidden></div>
+</main>
+<div class="context" id="contextMenu" role="menu" hidden></div>
+<footer class="footnote"><span>可拖动分隔线 · 点击提交查看文件 · 双击文件查看 Diff · 右键提交/分支</span><span>⌘K Commit · ⌘D Diff · Esc 返回</span></footer>
+<script>
+const $ = id => document.getElementById(id);
+const files = [
+ {name:'RepositoryStore.swift',path:'Sources/Core',kind:'modified',before:['import Foundation','','final class RepositoryStore {','    private let git: GitClient','','    func refresh() async throws {','        let commits = try await git.log()','        self.commits = commits','    }','','    func loadHistory() async throws {','        commits = try await git.log()','    }','}'],after:['import Foundation','','final class RepositoryStore {','    private let git: GitClient','','    func refresh() async throws {','        let commits = try await git.log(limit: 200)','        self.commits = commits','    }','','    func loadHistory() async throws {','        commits += try await git.nextPage()','    }','}'],changed:[7,12]},
+ {name:'MainWindowController.swift',path:'Sources/UI',kind:'modified',before:['import AppKit','','final class MainWindowController: NSWindowController {','    func showCommit() {','        commitPane.isHidden = false','    }','','    func showLog() {','        logPane.isHidden = false','    }','}'],after:['import AppKit','','final class MainWindowController: NSWindowController {','    func showCommit() {','        commitPane.isHidden = false','        window?.makeFirstResponder(commitPane)','    }','','    func showLog() {','        logPane.isHidden = false','    }','}'],changed:[6]},
+ {name:'README.md',path:'',kind:'modified',before:['# Git Desk','','A native Git client for macOS.','','## Usage','','Open a local repository.'],after:['# Git Desk','','A native Git client for macOS.','','## Usage','','Open a local repository.','Select files, inspect changes, then commit.'],changed:[8]},
+ {name:'BranchPopupController.swift',path:'Sources/UI',kind:'untracked',before:[],after:['import AppKit','','final class BranchPopupController: NSViewController {','    private let searchField = NSSearchField()','','    override func loadView() {','        view = NSView()','        view.addSubview(searchField)','    }','}'],changed:[1,2,3,4,5,6,7,8,9,10]}
+];
+const commits = [
+ {hash:'a6f903d',message:'按页加载提交历史，控制内存占用',author:'Developer',date:'Today 19:42',ref:'feature/native-git',lane:0,files:[0,1]},
+ {hash:'9c12b47',message:'补充 Commit 文件选择与快捷键',author:'Developer',date:'Today 18:26',lane:0,files:[1,2]},
+ {hash:'70e5a1b',message:'合并分支筛选交互',author:'Developer',date:'Yesterday 17:03',lane:0,merge:true,files:[0,3]},
+ {hash:'6fb8d32',message:'增加本地分支与远程分支列表',author:'Developer',date:'Yesterday 15:11',lane:1,files:[3,1]},
+ {hash:'ea347c0',message:'调整双栏 Diff 同步滚动',author:'Developer',date:'Oct 27 20:15',lane:1,files:[1]},
+ {hash:'b5a210f',message:'显示文件变更与提交详情',author:'Developer',date:'Oct 27 17:42',lane:0,files:[0,1]},
+ {hash:'0f8c3e1',message:'初始化仓库浏览界面',author:'Developer',date:'Oct 26 16:30',ref:'main',lane:0,join:true,files:[0,1,2]},
+ {hash:'83ab219',message:'创建原生应用窗口',author:'Developer',date:'Oct 26 14:08',lane:0,files:[1,2]},
+ {hash:'347afe0',message:'初始化项目',author:'Developer',date:'Oct 26 11:05',ref:'v0.1.0',lane:0,files:[2]}
+];
+let currentFile=0, selectedCommit=0, checks=new Set(), diffIndex=0, branch='feature/native-git', toastTimer;
+function esc(v){return String(v).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+function toast(text){$('toast').textContent=text;$('toast').hidden=false;clearTimeout(toastTimer);toastTimer=setTimeout(()=>$('toast').hidden=true,4200);}
+function dialog(title,html){$('branchPopup').hidden=true;$('branchToggle').setAttribute('aria-expanded','false');$('contextMenu').hidden=true;$('dialogTitle').textContent=title;$('dialogBody').innerHTML=html;$('dialogVeil').hidden=false;$('dialogClose').focus();}
+function demo(action){dialog(action,`<p>这里用于核对「${esc(action)}」的操作入口。原生版本会接入实际 Git 操作及对应确认流程。</p><p class="subtle">当前为界面交互原型，演示数据不会写入任何仓库。</p>`);}
+function renderFiles(){
+ const html=(f,i)=>`<div class="file ${f.kind==='untracked'?'untracked':''} ${i===currentFile?'selected':''}" data-file="${i}" tabindex="0"><input type="checkbox" aria-label="选择 ${esc(f.name)}" data-check="${i}" ${checks.has(i)?'checked':''}><span class="fileicon">${f.name.endsWith('.md')?'≡':'◇'}</span><span class="name">${esc(f.name)}</span><span class="path">${esc(f.path)}</span></div>`;
+ $('trackedFiles').innerHTML=files.slice(0,3).map(html).join('');$('untrackedFiles').innerHTML=html(files[3],3);
+ $('selectionStatus').textContent=`${checks.size} files selected`;$('allFiles').checked=[0,1,2].every(i=>checks.has(i));$('allFiles').indeterminate=[0,1,2].some(i=>checks.has(i))&&!$('allFiles').checked;$('allUntracked').checked=checks.has(3);
+}
+function colorLine(line){let out=esc(line); if(line.trim().startsWith('//'))return `<span class="comment">${out}</span>`; return out.replace(/\b(import|final|class|private|let|func|async|throws|try|await|self|override|false)\b/g,'<span class="kw">$1</span>').replace(/\b(Foundation|AppKit|NSWindowController|NSViewController|NSView|NSSearchField|GitClient|RepositoryStore)\b/g,'<span class="type">$1</span>');}
+function showDiff(i,source='local'){
+ currentFile=i;diffIndex=0;const f=files[i];renderFiles();$('diffFilename').textContent=f.name;$('leftTitle').textContent=`${source==='local'?'HEAD':commits[selectedCommit].hash+'^'} · ${f.name}`;$('rightTitle').textContent=`${source==='local'?'Local':commits[selectedCommit].hash} · ${f.name}`;
+ const count=Math.max(f.before.length,f.after.length), changed=f.changed;
+ for (const [side,lines,mode] of [['before',f.before,'del'],['after',f.after,'add']]) $(''+side).innerHTML=Array.from({length:count},(_,j)=>`<div class="codeline ${changed.includes(j+1)?(lines[j]===undefined?'blank':mode):''}" data-line="${j+1}"><span class="ln">${lines[j]===undefined?'':j+1}</span><span class="code">${lines[j]===undefined?' ':colorLine(lines[j])}</span></div>`).join('');
+ $('diffCount').textContent=`${f.kind==='untracked'?1:changed.length} difference${changed.length===1?'':'s'}`;
+}
+function graph(c,i){let x=c.lane?35:18;return `<svg viewBox="0 0 59 27"><path d="M18 0V27" fill="none" stroke="#b8a36b" stroke-width="1.6"/>${i>=2&&i<=6?'<path d="M35 0V27" fill="none" stroke="#9e78ae" stroke-width="1.6"/>':''}${c.merge?'<path d="M18 14Q35 14 35 27" fill="none" stroke="#9e78ae" stroke-width="1.6"/>':''}${c.join?'<path d="M35 0Q35 14 18 14" fill="none" stroke="#9e78ae" stroke-width="1.6"/>':''}<circle cx="${x}" cy="13.5" r="3.8" fill="${c.lane?'#9e78ae':'#b8a36b'}"/>${i===0?'<circle cx="18" cy="13.5" r="6" stroke="#b8a36b" stroke-width="1.3" fill="none"/>':''}</svg>`;}
+function renderLog(){
+ const q=$('logSearch').value.toLowerCase();let matches=0;
+ $('logList').innerHTML=commits.map((c,i)=>{if(q&&!`${c.hash} ${c.message} ${c.author}`.toLowerCase().includes(q))return '';if((branch==='main'||branch==='origin/main')&&i<6)return '';if(branch==='v0.1.0'&&i<8)return '';matches++;return `<div class="logrow ${i===selectedCommit?'selected':''}" data-commit="${i}" role="option" aria-selected="${i===selectedCommit}"><div class="graph">${graph(c,i)}</div><div class="subject">${c.ref?`<span class="ref">${esc(c.ref)}</span>`:''}<span class="message">${esc(c.message)}</span></div><span class="author">${esc(c.author)}</span><span class="date">${esc(c.date)}</span></div>`;}).join('');
+ if(!matches)$('logList').innerHTML='<p class="subtle" style="padding:15px">No commits found</p>';
+}
+function selectCommit(i){selectedCommit=i;renderLog();const c=commits[i];$('changedCount').textContent=`${c.files.length} files`;$('changedFiles').innerHTML=c.files.map(n=>`<div class="file" data-historyfile="${n}" tabindex="0"><span class="fileicon">◇</span><span class="name">${esc(files[n].name)}</span></div>`).join('');$('commitDetails').innerHTML=`<strong>${esc(c.message)}</strong><br><span class="subtle">Developer · ${esc(c.date)}</span><br><span class="hash">${c.hash}</span> &nbsp; <span class="subtle">${esc(c.ref||'feature/native-git')}</span>`;}
+function filterBranch(name){branch=name;document.querySelectorAll('#branchTree [data-branch]').forEach(n=>n.classList.toggle('selected',n.dataset.branch===name));$('branchFilter').textContent=(name==='all'?'Branch':name)+' ⌄';renderLog();}
+function toggleBranch(force){let show=force??$('branchPopup').hidden;$('branchPopup').hidden=!show;$('branchToggle').setAttribute('aria-expanded',String(show));if(show){$('branchSearch').value='';renderPopup();$('branchSearch').focus();}}
+function renderPopup(){const q=$('branchSearch').value.toLowerCase();$('popupBranches').innerHTML=['feature/native-git','main','feature/diff-viewer'].filter(v=>v.includes(q)).map(v=>`<button class="popupitem branch-option nested" data-popupbranch="${v}"><span>${v==='feature/native-git'?'✓':'⑂'}</span>${v}</button>`).join('');document.querySelector('[data-popupbranch="origin/main"]').hidden=!!q&&!'origin/main'.includes(q);}
+function showCommit(){ $('app').classList.remove('diffmax');$('commitPane').classList.remove('hidden');$('commitSplit').classList.remove('hidden');$('message').focus(); }
+function showLog(){ $('app').classList.remove('diffmax');$('logPane').classList.remove('hidden');$('logSplit').classList.remove('hidden');$('logList').focus(); }
+function context(x,y,items){$('contextMenu').innerHTML=items.map(([label,action,key])=>label==='-'?'<hr>':`<button class="popupitem" role="menuitem" data-context="${esc(action)}">${esc(label)}<span class="key">${key||''}</span></button>`).join('');$('contextMenu').hidden=false;const box=$('contextMenu').getBoundingClientRect();$('contextMenu').style.left=Math.min(x,innerWidth-box.width-12)+'px';$('contextMenu').style.top=Math.min(y,innerHeight-box.height-12)+'px';}
+function commitPreview(push){if(!checks.size)return toast('Select files to commit.');if(!$('message').value.trim()){toast('Enter a commit message.');$('message').focus();return;}dialog(push?'Commit and Push':'Commit Changes',`<p>${esc($('message').value)}</p><ul>${[...checks].map(i=>`<li>${esc(files[i].name)}</li>`).join('')}</ul><p class="subtle">已选 ${checks.size} 个文件${$('amend').checked?' · Amend':''}。当前仅展示所选内容，实际提交将在原生应用中执行。</p>`);}
+document.addEventListener('click',e=>{
+ const check=e.target.closest('[data-check]');if(check){let i=Number(check.dataset.check);check.checked?checks.add(i):checks.delete(i);renderFiles();return;}
+ const local=e.target.closest('[data-file]');if(local){showDiff(Number(local.dataset.file));return;}
+ const commit=e.target.closest('[data-commit]');if(commit){selectCommit(Number(commit.dataset.commit));return;}
+ const history=e.target.closest('[data-historyfile]');if(history){document.querySelectorAll('[data-historyfile]').forEach(n=>n.classList.toggle('selected',n===history));return;}
+ const b=e.target.closest('[data-branch]');if(b){filterBranch(b.dataset.branch);return;}
+ const pb=e.target.closest('[data-popupbranch]');if(pb){demo('Branch Actions · '+pb.dataset.popupbranch);return;}
+ const d=e.target.closest('[data-demo]');if(d){demo(d.dataset.demo);return;}
+ const c=e.target.closest('[data-context]');if(c){$('contextMenu').hidden=true;if(c.dataset.context==='diff'){showDiff(commits[selectedCommit].files[0],'history');}else if(c.dataset.context==='copy'){navigator.clipboard?.writeText(commits[selectedCommit].hash).then(()=>toast('Commit hash copied'),()=>toast(commits[selectedCommit].hash));}else demo(c.dataset.context);return;}
+ if(e.target.closest('[data-refresh]'))toast('Already up to date · 演示数据');
+ if(!e.target.closest('.context'))$('contextMenu').hidden=true;
+ if(!e.target.closest('.popup')&&!e.target.closest('#branchToggle')&&!e.target.closest('#showBranch')&&!e.target.closest('#branchFilter'))toggleBranch(false);
+});
+document.addEventListener('dblclick',e=>{const f=e.target.closest('[data-file],[data-historyfile]');if(f&&!e.target.matches('input')){showDiff(Number(f.dataset.file??f.dataset.historyfile),f.dataset.historyfile===undefined?'local':'history');}const c=e.target.closest('[data-commit]');if(c)showDiff(commits[Number(c.dataset.commit)].files[0],'history');});
+document.addEventListener('contextmenu',e=>{const c=e.target.closest('[data-commit]'),b=e.target.closest('[data-branch]'),f=e.target.closest('[data-file]');if(!c&&!b&&!f)return;e.preventDefault();if(c){selectCommit(Number(c.dataset.commit));context(e.clientX,e.clientY,[['Show Diff','diff','⌘D'],['Compare with Local','Compare with Local'],['Copy Revision Number','copy','⌘C'],['-'],['Cherry-Pick','Cherry-Pick'],['Revert Commit','Revert Commit'],['Reset Current Branch to Here…','Reset Current Branch to Here…'],['New Branch…','New Branch…']]);}else if(b){context(e.clientX,e.clientY,[['Checkout','Checkout '+b.dataset.branch],['New Branch from…','New Branch from…'],['Compare with Current','Compare with Current'],['Show Diff with Working Tree','Show Diff with Working Tree'],['-'],['Delete','Delete Branch']]);}else context(e.clientX,e.clientY,[['Show Diff','diff','⌘D'],['Rollback…','Rollback…'],['Shelve Changes…','Shelve Changes…']]);});
+$('allFiles').addEventListener('change',e=>{[0,1,2].forEach(i=>e.target.checked?checks.add(i):checks.delete(i));renderFiles();});$('allUntracked').addEventListener('change',e=>{e.target.checked?checks.add(3):checks.delete(3);renderFiles();});
+$('logSearch').addEventListener('input',renderLog);$('branchSearch').addEventListener('input',renderPopup);$('branchToggle').onclick=()=>toggleBranch();$('showBranch').onclick=()=>toggleBranch(true);$('branchFilter').onclick=()=>toggleBranch(true);
+$('showCommit').onclick=showCommit;$('showLog').onclick=showLog;$('popupCommit').onclick=()=>{toggleBranch(false);showCommit();};
+$('commitToggle').onclick=()=>{const hide=!$('commitPane').classList.contains('hidden');$('commitPane').classList.toggle('hidden',hide);$('commitSplit').classList.toggle('hidden',hide);};
+function toggleLog(){const hide=!$('logPane').classList.contains('hidden');$('logPane').classList.toggle('hidden',hide);$('logSplit').classList.toggle('hidden',hide);}$('logToggle').onclick=toggleLog;$('hideLog').onclick=toggleLog;
+$('maximize').onclick=()=>$('app').classList.toggle('diffmax');$('commitButton').onclick=()=>commitPreview(false);$('commitPush').onclick=()=>commitPreview(true);$('dialogClose').onclick=()=>$('dialogVeil').hidden=true;$('refresh').onclick=()=>toast('Already up to date · 演示数据');
+$('showGuide').onclick=()=>dialog('本轮核对的交互',`<ul><li>左侧 Commit 文件树与勾选、Amend、提交说明。</li><li>中央双栏 Diff、同步滚动、上/下一个差异。</li><li>底部 Git Log 的分支 → 提交 → 文件 → Diff 联动。</li><li>顶部可搜索分支弹窗、右键菜单与快捷键。</li><li>拖动分隔线，调整各区域大小。</li></ul><p>正式应用：Swift + AppKit，调用系统 Git。历史记录分页，界面按需刷新。完整 Git 功能分阶段接入。</p><p class="subtle">当前原型用于确认布局和操作路径，尚未验证像素与行为的完全一致性。</p>`);
+$('settings').onclick=()=>demo('Settings');$('repo').onclick=()=>demo('Open Repository');$('repositories').onclick=()=>demo('Recent Repositories');$('commitOptions').onclick=()=>demo('Commit Options');$('ignoreWhitespace').onclick=()=>demo('Ignore Whitespace');$('viewerMode').onclick=()=>demo('Diff Viewer Options');$('goHash').onclick=()=>$('logSearch').focus();
+$('untrackedToggle').onclick=()=>{const hidden=$('untrackedFiles').classList.toggle('hidden');$('untrackedToggle').textContent=hidden?'›':'⌄';$('untrackedToggle').setAttribute('aria-expanded',String(!hidden));};$('expand').onclick=()=>{$('untrackedFiles').classList.remove('hidden');$('untrackedToggle').textContent='⌄';};
+$('detailDiff').onclick=()=>showDiff(commits[selectedCommit].files[0],'history');
+let sync=false;for(const [a,b] of [['before','after'],['after','before']])$(a).addEventListener('scroll',()=>{if(sync)return;sync=true;$(b).scrollTop=$(a).scrollTop;$(b).scrollLeft=$(a).scrollLeft;requestAnimationFrame(()=>sync=false);});
+function jumpDiff(step){const f=files[currentFile];diffIndex=(diffIndex+step+f.changed.length)%f.changed.length;for(const id of ['before','after']){$(id).querySelectorAll('.hot').forEach(n=>n.classList.remove('hot'));const n=$(id).querySelector(`[data-line="${f.changed[diffIndex]}"]`);if(n){n.classList.add('hot');$(id).scrollTop=Math.max(0,n.offsetTop-$(id).offsetTop-45);}}$('diffCount').textContent=`${diffIndex+1} / ${f.changed.length} differences`;}$('prevDiff').onclick=()=>jumpDiff(-1);$('nextDiff').onclick=()=>jumpDiff(1);
+function drag(handle,axis,callback){$(handle).addEventListener('pointerdown',e=>{e.preventDefault();$(handle).setPointerCapture(e.pointerId);document.body.style.userSelect='none';const start=axis==='x'?e.clientX:e.clientY;const original=axis==='x'?$('commitPane').offsetWidth:$('logPane').offsetHeight;function move(v){callback(original,(axis==='x'?v.clientX:v.clientY)-start);}function up(){$(handle).removeEventListener('pointermove',move);$(handle).removeEventListener('pointerup',up);document.body.style.userSelect='';}$(handle).addEventListener('pointermove',move);$(handle).addEventListener('pointerup',up);});}drag('commitSplit','x',(original,delta)=>$('commitPane').style.width=Math.max(210,Math.min(460,original+delta))+'px');drag('logSplit','y',(original,delta)=>$('logPane').style.height=Math.max(170,Math.min($('app').offsetHeight*.7,original-delta))+'px');
+document.addEventListener('keydown',e=>{if(e.key==='Escape'){$('contextMenu').hidden=true;$('dialogVeil').hidden=true;toggleBranch(false);$('app').classList.remove('diffmax');return;}if(e.metaKey&&e.key.toLowerCase()==='k'){e.preventDefault();if(e.shiftKey)demo('Push');else showCommit();}else if(e.metaKey&&e.key.toLowerCase()==='d'){e.preventDefault();$('app').classList.toggle('diffmax');}else if(e.metaKey&&e.key==='0'){e.preventDefault();$('commitToggle').click();}else if(e.metaKey&&e.key==='9'){e.preventDefault();showLog();}else if(e.key==='F7'){e.preventDefault();jumpDiff(e.shiftKey?-1:1);}else if(document.activeElement===$('logList')&&['ArrowUp','ArrowDown'].includes(e.key)){e.preventDefault();selectCommit(Math.max(0,Math.min(commits.length-1,selectedCommit+(e.key==='ArrowDown'?1:-1))));}else if(e.key==='Enter'){const f=document.activeElement.closest?.('[data-file],[data-historyfile]');if(f)showDiff(Number(f.dataset.file??f.dataset.historyfile),f.dataset.historyfile===undefined?'local':'history');}});
+showDiff(0);selectCommit(0);
+</script>
+</body>
+</html>

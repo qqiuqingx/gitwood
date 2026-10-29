@@ -1,0 +1,26 @@
+Gitwood
+Copyright 2026 Gitwood contributors
+
+Licensed under the Apache License, Version 2.0. See LICENSE.
+
+Third-party dependencies
+------------------------
+Tauri / tauri-build / @tauri-apps/api / @tauri-apps/cli: MIT OR Apache-2.0.
+Svelte / @sveltejs/vite-plugin-svelte / svelte-check: MIT.
+Vite / Vitest / pnpm: MIT.
+TypeScript: Apache-2.0. Node.js type definitions: MIT.
+The locked transitive dependency inventory and license notices are recorded in
+docs/third-party-licenses.md. Dependency licenses apply to their respective code;
+Gitwood's Apache-2.0 license does not replace those terms.
+Transitive MPL-2.0 libraries remain under MPL-2.0, without modifications; exact
+source archives are linked in that inventory. Permissive alternatives are selected
+where dual/triple licenses offer LGPL alongside MIT/Apache-2.0.
+
+Ported code / icons from intellij-community (reserved register)
+-------------------------------------------------------------
+No code or icons from intellij-community have been ported in this skeleton.
+For each future port, record the upstream file, revision, exact license,
+copyright notice, local destination, and modifications here before inclusion.
+
+The original branching wood-grain application icon in src-tauri/icons/source.svg
+and its generated variants are Copyright 2026 Gitwood contributors, Apache-2.0.

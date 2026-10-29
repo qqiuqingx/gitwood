@@ -1,0 +1,104 @@
+name: Release artifacts
+
+on:
+  push:
+    tags: ['v*']
+
+# Upload build artifacts only; public GitHub Releases require maintainer approval.
+permissions:
+  contents: read
+
+jobs:
+  macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin, x86_64-apple-darwin
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 12.16.1
+      - run: pnpm install --frozen-lockfile
+      - name: Build universal DMG (ad-hoc, no notarization)
+        run: pnpm tauri build --target universal-apple-darwin --bundles dmg
+        env:
+          APPLE_SIGNING_IDENTITY: '-'
+      - name: SHA-256
+        working-directory: target/universal-apple-darwin/release/bundle/dmg
+        run: shasum -a 256 ./*.dmg > SHA256SUMS.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Gitwood-macOS-universal-${{ github.ref_name }}
+          path: |
+            target/universal-apple-darwin/release/bundle/dmg/*.dmg
+            target/universal-apple-darwin/release/bundle/dmg/SHA256SUMS.txt
+          if-no-files-found: error
+
+  windows:
+    # v0.1 distributes macOS only. Enable Windows releases from v0.2.
+    if: ${{ false }}
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 12.16.1
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm tauri build --bundles nsis,msi
+      - name: SHA-256
+        shell: pwsh
+        run: |
+          Get-ChildItem target/release/bundle -Recurse -File -Include *.msi,*.exe |
+            Get-FileHash -Algorithm SHA256 |
+            ForEach-Object { "$($_.Hash.ToLower())  $([IO.Path]::GetRelativePath('target/release/bundle', $_.Path))" } |
+            Set-Content target/release/bundle/SHA256SUMS.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Gitwood-Windows-${{ github.ref_name }}
+          path: |
+            target/release/bundle/msi/*.msi
+            target/release/bundle/nsis/*.exe
+            target/release/bundle/SHA256SUMS.txt
+          if-no-files-found: error
+
+  linux:
+    # v0.1 distributes macOS only. Enable Linux releases from v0.2.
+    if: ${{ false }}
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Linux system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential curl wget file libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 12.16.1
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm tauri build --bundles appimage,deb
+      - name: SHA-256
+        working-directory: target/release/bundle
+        run: sha256sum appimage/*.AppImage deb/*.deb > SHA256SUMS.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Gitwood-Linux-${{ github.ref_name }}
+          path: |
+            target/release/bundle/appimage/*.AppImage
+            target/release/bundle/deb/*.deb
+            target/release/bundle/SHA256SUMS.txt
+          if-no-files-found: error

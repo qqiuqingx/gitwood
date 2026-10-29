@@ -1,0 +1,13 @@
+[package]
+name = "gitwood"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Gitwood desktop application"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+gitwood-core = { path = "../crates/gitwood-core" }
+tauri = { version = "2", features = [] }

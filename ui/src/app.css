@@ -1,0 +1,9 @@
+* { box-sizing: border-box; }
+html, body, #app { width: 100%; height: 100%; margin: 0; overflow: hidden; }
+body {
+  background: var(--background-primary);
+  color: var(--text-primary);
+  font-family: var(--font-ui-family);
+  font-size: var(--font-ui-size);
+  line-height: var(--line-height-ui);
+}

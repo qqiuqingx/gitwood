@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <title>Gitwood: an original branching wood grain mark</title>
+  <rect x="48" y="48" width="928" height="928" rx="208" fill="#374D42"/>
+  <g fill="none" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M282 746C190 612 202 408 334 290C466 172 666 210 752 350C838 490 810 678 682 758C554 838 382 800 338 654C294 508 360 380 474 374C588 368 660 450 638 556C616 662 486 686 456 594" stroke="#9CA78E" stroke-width="32"/>
+    <path d="M504 744V470L644 330M504 554L380 430" stroke="#F3DFB7" stroke-width="48"/>
+  </g>
+  <g fill="#F3DFB7">
+    <circle cx="504" cy="744" r="36"/>
+    <circle cx="644" cy="330" r="36"/>
+    <circle cx="380" cy="430" r="36"/>
+  </g>
+</svg>
