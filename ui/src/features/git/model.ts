@@ -4,7 +4,7 @@ import type { Reference, References } from '../browse/types';
 export type CheckoutMode = 'normal' | 'smart' | 'force';
 export type UpdateStrategy = 'merge' | 'rebase';
 export interface PushOptions { remote: string | null; branch: string | null; forceWithLease: boolean; tags: boolean }
-export interface PushPreview { remote: string; branch: string; commits: string[]; total: number; start: number }
+export interface PushPreview { remote: string; branch: string; commits: string[]; subjects: string[]; total: number; start: number }
 export interface PushRef { flag: string; source: string; target: string; summary: string; rejection?: string | null }
 export type RemoteOutcome =
   | { kind: 'completed' }

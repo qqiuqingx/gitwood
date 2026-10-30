@@ -5,13 +5,14 @@ import { amendMessage, blockSelection, canCommit, emptySelection, feedback, incl
 import { CommitSession } from '../src/features/commit/session.svelte';
 import { RepositoryBrowser } from '../src/features/browse/browser.svelte';
 const path = { bytes:[100,105,114,47,102], display:'dir/f' };
-it('tracked defaults included, untracked defaults excluded, directory/file rules survive refresh by bytes',()=>{
- let selection=emptySelection(); expect(included(selection,path)).toBe(true);expect(included(selection,path,true)).toBe(false);
+it('changes and untracked files default to excluded, directory/file rules survive refresh by bytes',()=>{
+ let selection=emptySelection(); expect(included(selection,path)).toBe(false);expect(included(selection,path,true)).toBe(false);
  selection=toggleRule(selection,'changes/dir/6469722f','all');expect(included(selection,{...path,display:'new display'})).toBe(false);
  selection=toggleRule(selection,'change/6469722f66','none');expect(included(selection,path)).toBe(true);
 });
 it('partial blocks create mixed state, full toggles remove hunk overrides, stale previews never retarget indices',()=>{
- let selection=toggleBlock(emptySelection(),path,'v1',3,1);expect(blockSelection(selection,path,'v1',3)).toEqual([0,2]);expect(selection.hunks.length).toBe(1);
+ expect(toggleBlock(emptySelection(),path,'v1',3,1).hunks[0].blocks).toEqual([1]);
+ let selection=toggleBlock(toggleRule(emptySelection(),'changes','none'),path,'v1',3,1);expect(blockSelection(selection,path,'v1',3)).toEqual([0,2]);expect(selection.hunks.length).toBe(1);
  expect(blockSelection(selection,path,'v2',3)).toEqual([]);
  selection=toggleRule(selection,'changes','some');expect(selection.hunks).toHaveLength(0);expect(included(selection,path)).toBe(true);
  selection=toggleBlock(selection,path,'v1',3,0);selection=toggleBlock(selection,path,'v1',3,0);expect(selection.hunks).toHaveLength(0);

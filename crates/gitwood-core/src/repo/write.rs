@@ -616,6 +616,13 @@ impl Lease {
                 .take(limit.min(200))
                 .cloned()
                 .collect(),
+            subjects: preview
+                .subjects
+                .iter()
+                .skip(start)
+                .take(limit.min(200))
+                .cloned()
+                .collect(),
         })
     }
     pub async fn push_remote(

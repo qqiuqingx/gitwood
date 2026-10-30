@@ -52,7 +52,7 @@ impl Selection {
             .iter()
             .rev()
             .find(|r| matches(&r.id, path, untracked))
-            .map_or(!untracked, |r| r.included);
+            .is_some_and(|r| r.included);
         if included {
             Inclusion::All
         } else {

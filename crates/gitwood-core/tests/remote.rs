@@ -276,7 +276,11 @@ async fn ssh_error_classification_and_secret_redaction() {
 }
 #[tokio::test]
 async fn commit_and_push_keeps_two_results_and_does_not_push_failed_commit() {
-    use gitwood_core::repo::{inclusion::Selection, session::Sessions, write::ResultState};
+    use gitwood_core::repo::{
+        inclusion::{Rule, Selection},
+        session::Sessions,
+        write::ResultState,
+    };
     let (a, b, _bare) = fixture().await;
     remote::push(&a.runner, &a.options, &options(), &token(&a).await)
         .await
@@ -304,15 +308,15 @@ async fn commit_and_push_keeps_two_results_and_does_not_push_failed_commit() {
         .await
         .is_err());
     a.put("A", "new commit\n");
+    let changes = Selection {
+        rules: vec![Rule {
+            id: "changes".into(),
+            included: true,
+        }],
+        hunks: vec![],
+    };
     let result = lease
-        .commit_and_push(
-            &Selection::default(),
-            "local",
-            false,
-            &token(&a).await,
-            &options(),
-            None,
-        )
+        .commit_and_push(&changes, "local", false, &token(&a).await, &options(), None)
         .await
         .unwrap();
     assert!(matches!(result.commit, ResultState::Committed { .. }));
@@ -340,6 +344,10 @@ async fn preview_session_pages_over_200_commits() {
     let last = lease.push_preview_page(200, 500).unwrap();
     assert_eq!(last.commits.len(), 5);
     assert!(!first.commits.contains(&last.commits[0]));
+    assert_eq!(first.subjects.len(), 200);
+    assert_eq!(last.subjects.len(), 5);
+    assert!(first.subjects.iter().all(|subject| subject == "page"));
+    assert!(last.subjects[..4].iter().all(|subject| subject == "page"));
 }
 
 #[cfg(unix)]

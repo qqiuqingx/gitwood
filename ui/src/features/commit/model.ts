@@ -16,7 +16,7 @@ export function toggleRule(selection: Selection, id: string, state: Inclusion): 
     hunks: selection.hunks.filter(h => !matches(id, h.path, group)) };
 }
 export function included(selection: Selection, path: RepoPath, untracked = false): boolean {
-  return [...selection.rules].reverse().find(r => matches(r.id, path, untracked))?.included ?? !untracked;
+  return [...selection.rules].reverse().find(r => matches(r.id, path, untracked))?.included ?? false;
 }
 export function blockSelection(selection: Selection, path: RepoPath, token: string, count: number, untracked = false): number[] {
   const existing = selection.hunks.find(h => pathKey(h.path) === pathKey(path));

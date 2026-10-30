@@ -141,10 +141,16 @@ async fn whole_delete_rename_untracked_special_and_initial_amend() {
     let l = lease(&repo).await;
     let state = l.status().await.unwrap();
     let s = Selection {
-        rules: vec![Rule {
-            id: "unversioned".into(),
-            included: true,
-        }],
+        rules: vec![
+            Rule {
+                id: "changes".into(),
+                included: true,
+            },
+            Rule {
+                id: "unversioned".into(),
+                included: true,
+            },
+        ],
         hunks: vec![],
     };
     l.commit_selection(&s, "files", false, &state.fingerprint)

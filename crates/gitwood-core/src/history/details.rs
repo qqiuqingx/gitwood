@@ -17,6 +17,12 @@ pub struct Filter {
     pub since: Option<String>,
     pub until: Option<String>,
     pub path: Option<RepoPath>,
+    /// IDEA's `.*` toggle: `--extended-regexp` instead of `--fixed-strings`.
+    #[serde(default)]
+    pub regex: bool,
+    /// IDEA's `Cc` toggle; off adds `--regexp-ignore-case` (GitLogProvider).
+    #[serde(default)]
+    pub match_case: bool,
 }
 impl Filter {
     pub fn arguments(&self) -> Result<Vec<OsString>, GitError> {
@@ -142,9 +148,28 @@ async fn matching_hashes(
     };
     let mut grep_arguments = arguments;
     grep_arguments.insert(0, format!("--grep={query}").into());
-    grep_arguments.insert(0, "--fixed-strings".into());
+    grep_arguments.insert(
+        0,
+        if filter.regex {
+            "--extended-regexp"
+        } else {
+            "--fixed-strings"
+        }
+        .into(),
+    );
+    if !filter.match_case {
+        grep_arguments.insert(0, "--regexp-ignore-case".into());
+    }
     let mut selected = hashes(&read_log(runner, options, grep_arguments).await?);
-    selected.extend(candidates.into_iter().filter(|hash| hash.contains(query)));
+    // Hashes are lowercase hex; a hex-looking query also matches by hash prefix/infix.
+    let needle = if filter.match_case {
+        query.clone()
+    } else {
+        query.to_ascii_lowercase()
+    };
+    if !needle.is_empty() && needle.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+        selected.extend(candidates.into_iter().filter(|hash| hash.contains(&needle)));
+    }
     Ok(selected)
 }
 

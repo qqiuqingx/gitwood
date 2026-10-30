@@ -10,8 +10,8 @@ export interface FilePage { total: number; start: number; files: FileChange[] }
 export type Segment = [edge: number, from: number, to: number, color: number, direction: number, dotted: boolean];
 export interface Rows { generation: number; nodes: [row: number, column: number, color: number, start: number, end: number][]; segments: Segment[]; commits: Commit[] }
 export interface HistoryRow { index: number; column: number; color: number; segments: Segment[]; commit: Commit }
-export interface Filter { text: string | null; branch: string | null; author: string | null; since: string | null; until: string | null; path: RepoPath | null }
-export interface FilterInput { text: string; branch: string; author: string; since: string; until: string; path: string }
+export interface Filter { text: string | null; branch: string | null; author: string | null; since: string | null; until: string | null; path: RepoPath | null; regex: boolean; match_case: boolean }
+export interface FilterInput { text: string; branch: string; author: string; since: string; until: string; path: string; regex: boolean; matchCase: boolean }
 export interface Opened { generation: number; repository: { root: string; linked: boolean } }
 export interface Recent { path: string; displayPath: string; failed: boolean }
 export interface Refresh { status: boolean; refs: boolean; history: boolean }

@@ -2,13 +2,14 @@ import { matchSpeedSearch } from '../../components/speed-search';
 import type { TreeNode, TreeSource } from '../../components/tree';
 import type { Filter, FilterInput, RepoPath, References, Refresh } from './types';
 
-export const emptyFilter = (): FilterInput => ({ text: '', branch: '', author: '', since: '', until: '', path: '' });
+export const emptyFilter = (): FilterInput => ({ text: '', branch: '', author: '', since: '', until: '', path: '', regex: false, matchCase: false });
 export function buildFilter(input: FilterInput): Filter {
   const optional = (value: string) => value.trim() || null;
   const path = input.path; // Paths are literal: leading/trailing whitespace is meaningful.
   return { text: optional(input.text), branch: optional(input.branch), author: optional(input.author),
     since: optional(input.since), until: optional(input.until),
-    path: path ? { display: path, bytes: Array.from(new TextEncoder().encode(path)) } : null };
+    path: path ? { display: path, bytes: Array.from(new TextEncoder().encode(path)) } : null,
+    regex: input.regex, match_case: input.matchCase };
 }
 export interface PrettyDateWords { today: string; yesterday: string; moments: string; minute: string; minutes: string; hour: string }
 /** IDEA DateFormatUtil.doFormatPretty: <=61 minutes (Math.rint), then local
@@ -126,4 +127,32 @@ export function fileStatus(node: { status: string | null; staged: boolean; unsta
   if (node.conflicted) return 'conflicted';
   const code = node.status ?? '';
   return statusColor(node.unstaged && code.length === 2 ? code[1] : code[0]);
+}
+export interface RefLabel { name: string; kind: 'head' | 'branch-local' | 'branch-remote' | 'tag' }
+/** Labels per commit hash: HEAD first, then local branches, remote branches and tags (vcs-log order). */
+export function refLabelsByHash(refs: References | null): Map<string, RefLabel[]> {
+  const map = new Map<string, RefLabel[]>();
+  if (!refs) return map;
+  const groups = [[refs.local, 'branch-local'], [Object.values(refs.remotes).flat(), 'branch-remote'], [refs.tags, 'tag']] as const;
+  for (const [list, kind] of groups) {
+    for (const ref of list) {
+      const hash = ref.peeled ?? ref.hash;
+      map.set(hash, [...(map.get(hash) ?? []), { name: ref.name.replace(/^refs\/(heads|remotes|tags)\//, ''), kind }]);
+    }
+  }
+  if (refs.head.oid) map.set(refs.head.oid, [{ name: 'HEAD', kind: 'head' }, ...(map.get(refs.head.oid) ?? [])]);
+  return map;
+}
+/** Absolute date and time used by the commit details header (IDEA: `2026/10/30` and `15:36`). */
+export function detailsDateTime(seconds: number): { date: string; time: string } {
+  const value = new Date(seconds * 1000), pad = (n: number) => String(n).padStart(2, '0');
+  return { date: `${value.getFullYear()}/${pad(value.getMonth() + 1)}/${pad(value.getDate())}`, time: `${pad(value.getHours())}:${pad(value.getMinutes())}` };
+}
+/** Number of leading filter buttons that fit; the rest move behind IDEA's `>` overflow button. */
+export function fittingFilters(available: number, widths: readonly number[], overflowWidth: number, gap: number): number {
+  const total = (count: number) => widths.slice(0, count).reduce((sum, width) => sum + width + gap, 0);
+  if (total(widths.length) <= available) return widths.length;
+  let count = widths.length - 1;
+  while (count > 0 && total(count) + overflowWidth > available) count--;
+  return count;
 }

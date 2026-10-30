@@ -66,6 +66,8 @@ pub struct PushPreview {
     pub remote: String,
     pub branch: String,
     pub commits: Vec<String>,
+    /// Subject line for each entry of `commits` (same order and length).
+    pub subjects: Vec<String>,
     pub total: usize,
     pub start: usize,
 }
@@ -244,7 +246,7 @@ pub async fn preview(
     }
     cmd(r, o, "check-ref-format", &["--branch", &branch]).await?;
     let target = format!("refs/remotes/{remote}/{branch}");
-    let mut args = vec!["--format=%H".to_owned(), "HEAD".into()];
+    let mut args = vec!["--format=%H%x00%s".to_owned(), "HEAD".into()];
     if refs.remotes.values().flatten().any(|b| b.name == target) {
         args.push(format!("^{target}"));
     } else {
@@ -253,19 +255,21 @@ pub async fn preview(
     let out = r
         .run(ReadCommand::new(ReadOperation::Log).args(args), o)
         .await?;
+    let (commits, subjects): (Vec<_>, Vec<_>) = String::from_utf8_lossy(&out.stdout)
+        .lines()
+        .filter(|line| !line.is_empty())
+        .map(|line| {
+            let (hash, subject) = line.split_once('\0').unwrap_or((line, ""));
+            (hash.to_owned(), subject.to_owned())
+        })
+        .unzip();
     Ok(PushPreview {
         remote,
         branch,
-        total: out
-            .stdout
-            .split(|b| *b == b'\n')
-            .filter(|s| !s.is_empty())
-            .count(),
+        total: commits.len(),
         start: 0,
-        commits: String::from_utf8_lossy(&out.stdout)
-            .lines()
-            .map(str::to_owned)
-            .collect(),
+        commits,
+        subjects,
     })
 }
 pub async fn fetch(

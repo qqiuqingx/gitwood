@@ -362,3 +362,32 @@ async fn detached_head_filter_only_includes_its_ancestors() {
     assert_eq!(layout.graph().len(), 2);
     assert_eq!(filtered(&repo, Filter::default()).await.graph().len(), 3);
 }
+#[tokio::test]
+async fn text_filter_honors_regex_and_match_case_toggles() {
+    let repo = Repo::new().await;
+    let author = "A <a@example.invalid>";
+    let upper = commit(&repo, "A", "Fix Bug 1", author).await;
+    let lower = commit(&repo, "A", "fix bug 2", author).await;
+    commit(&repo, "A", "feature 3", author).await;
+    let count = |text: &str, regex: bool, match_case: bool| {
+        let filter = Filter {
+            text: Some(text.into()),
+            regex,
+            match_case,
+            ..Filter::default()
+        };
+        let repo = &repo;
+        async move { filtered(repo, filter).await.graph().len() }
+    };
+    assert_eq!(count("fix", false, false).await, 2);
+    assert_eq!(count("fix", false, true).await, 1);
+    // Literal mode keeps regex metacharacters literal.
+    assert_eq!(count("bug [12]", false, false).await, 0);
+    assert_eq!(count("bug [12]", true, false).await, 2);
+    assert_eq!(count("^Fix", true, true).await, 1);
+    assert_eq!(count("^fix", true, false).await, 2);
+    let prefix = upper[..10].to_ascii_uppercase();
+    assert_eq!(count(&prefix, false, false).await, 1);
+    assert_eq!(count(&prefix, false, true).await, 0);
+    assert_eq!(count(&lower[..10], false, true).await, 1);
+}

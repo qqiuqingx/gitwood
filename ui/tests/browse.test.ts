@@ -1,16 +1,22 @@
 import { describe, expect, it } from 'vitest';
-import { branchTree, buildFilter, directoryTree, emptyFilter, formatDate, mergeRefresh, pathId, preserveViewport, RequestGate, fileStatus, findPagedMatch } from '../src/features/browse/model';
+import { branchTree, buildFilter, fittingFilters, directoryTree, emptyFilter, formatDate, mergeRefresh, pathId, preserveViewport, RequestGate, fileStatus, findPagedMatch } from '../src/features/browse/model';
 import { graphCommands } from '../src/features/browse/graph';
 import { flattenTree } from '../src/components/tree';
 import type { HistoryRow, References } from '../src/features/browse/types';
 const path = (display: string) => ({ display, bytes: [...new TextEncoder().encode(display)] });
 
 describe('browse filters and regional dates', () => {
+  it('moves trailing filter buttons behind the overflow button only when they do not fit', () => {
+    expect(fittingFilters(400, [60, 50, 50, 50], 20, 4)).toBe(4);
+    expect(fittingFilters(150, [60, 50, 50, 50], 20, 4)).toBe(2);
+    expect(fittingFilters(70, [60, 50, 50, 50], 20, 4)).toBe(0);
+  });
   it('builds the real typed IPC filter with literal paths and intersects optional fields', () => {
     expect(buildFilter({ ...emptyFilter(), text: ' hash ', branch: 'refs/heads/main', author: 'Alice', since: '2026-01-01', path: ' -name \n' })).toEqual({
-      text: 'hash', branch: 'refs/heads/main', author: 'Alice', since: '2026-01-01', until: null, path: path(' -name \n'),
+      text: 'hash', branch: 'refs/heads/main', author: 'Alice', since: '2026-01-01', until: null, path: path(' -name \n'), regex: false, match_case: false,
     });
     expect(buildFilter(emptyFilter()).path).toBeNull();
+    expect(buildFilter({ ...emptyFilter(), text: '^fix', regex: true, matchCase: true })).toMatchObject({ text: '^fix', regex: true, match_case: true });
   });
   it('uses local calendar days, system time formatting, and includes year for older dates', () => {
     const now = new Date(2026, 9, 30, 12), today = new Date(2026, 9, 30, 9, 5), yesterday = new Date(2026, 9, 29, 23, 59);

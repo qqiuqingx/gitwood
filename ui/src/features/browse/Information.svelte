@@ -2,12 +2,17 @@
   import { invoke } from '@tauri-apps/api/core';
   import Splitter from '../../components/Splitter.svelte';
   import PagedFileTree from './PagedFileTree.svelte';
-  import { formatDate } from './model';
+  import { detailsDateTime, refLabelsByHash } from './model';
   import type { RepositoryBrowser } from './browser.svelte';
-  import { browseText as t, prettyDateWords } from '../../i18n/browse';
+  import { browseText as t } from '../../i18n/browse';
   let { browser, ratio = $bindable(0.6), label }: { browser: RepositoryBrowser; ratio?: number; label: string } = $props();
   let branches = $state<{ branches: string[]; total: number } | null>(null);
   let expanded = $state(false);
+  const labels = $derived(browser.details ? refLabelsByHash(browser.refs).get(browser.details.hash) ?? [] : []);
+  const when = $derived(browser.details ? detailsDateTime(browser.details.author_time) : null);
+  const subject = $derived(browser.details ? browser.details.message.split('\n', 1)[0] : '');
+  const body = $derived(browser.details ? browser.details.message.slice(subject.length).replace(/\s+$/, '') : '');
+  const shownBranches = $derived(branches ? (expanded ? branches.branches : branches.branches.slice(0, 3)).map(branch => branch.replace(/^refs\/(heads|remotes)\//, '')) : []);
   $effect(() => {
     const hash = browser.selected, generation = browser.generation;
     branches = null; expanded = false;
@@ -23,12 +28,10 @@
   {#snippet second()}
     <div class="details">
       {#if browser.details}
-        {#if branches}<p>{#each ['local', 'remote'] as group}<span>{t(group as 'local' | 'remote')}: </span>{#each (expanded ? branches.branches : branches.branches.slice(0, 3)).filter(branch => branch.startsWith(group === 'local' ? 'refs/heads/' : 'refs/remotes/')) as branch}<code>{branch.replace(/^refs\/(heads|remotes)\//, '')} </code>{/each}{/each}{#if branches.total > 3 && !expanded}<button onclick={() => { expanded = true; }}>{t('andOthers')} {branches.total - 3}</button>{/if}{#if expanded && branches.total > branches.branches.length}<span>+{branches.total - branches.branches.length}</span>{/if}</p>{/if}
-        <p class="message">{browser.details.message}</p>
-        <p>{browser.details.author} &lt;{browser.details.email}&gt;</p>
-        <p>{formatDate(browser.details.author_time, navigator.language, new Date(), prettyDateWords())}</p>
-        <p><span>{t('hash')}: </span><code>{browser.details.hash}</code></p>
-        {#if browser.details.parents.length}<p><span>{t('parents')}: </span>{#each browser.details.parents as parent}<code>{parent} </code>{/each}</p>{/if}
+        <p class="message"><strong>{subject}</strong>{body}</p>
+        <p class="author"><span class="hash">{browser.details.hash.slice(0, 8)}</span> {browser.details.author} <span class="email">&lt;{browser.details.email}&gt;</span> {when ? t('onDateAt').replace('{date}', when.date).replace('{time}', when.time) : ''}</p>
+        {#if labels.length}<p class="refs">{#each labels as label}<span class="ref"><svg style:color={`var(--label-${label.kind})`} viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M2 3v4.6l6.4 6.4 5.6-5.6L7.6 2H3a1 1 0 0 0-1 1Z" fill="none" stroke="currentColor" /><circle cx="5" cy="5" r="1" fill="currentColor" /></svg>{label.name}</span>{/each}</p>{/if}
+        {#if branches && branches.total}<p class="branches">{t(branches.total === 1 ? 'inOneBranch' : 'inBranches').replace('{count}', String(branches.total))} {shownBranches.join(', ')}{#if branches.total > shownBranches.length}{@const more = t('andOthers').replace('{count}', String(branches.total - shownBranches.length))} {#if expanded}{more}{:else}<button onclick={() => { expanded = true; }}>{more}</button>{/if}{/if}</p>{/if}
       {:else}<p>{browser.selected ? t('loading') : t('selectCommit')}</p>{/if}
     </div>
   {/snippet}
@@ -36,7 +39,10 @@
 <style>
   .details { height: 100%; overflow: auto; padding: var(--space-panel-y) var(--space-panel-x); font-size: var(--font-small-size); }
   p { margin: 0 0 var(--space-inline); white-space: pre-wrap; overflow-wrap: anywhere; }
-  .message { font-size: var(--font-ui-size); }
-  code { font-family: var(--font-editor-family); color: var(--accent); }
-  span { color: var(--text-secondary); }
+  .message { font-family: var(--font-editor-family); font-size: var(--font-ui-size); margin-block-end: calc(var(--space-inline) * 2); }
+  .email { color: var(--accent); }
+  .refs { display: flex; flex-wrap: wrap; gap: var(--space-inline); margin-block-end: 0; }
+  .ref { display: inline-flex; align-items: center; gap: calc(var(--space-inline) / 2); }
+  .ref svg { flex: none; }
+  button { font: inherit; color: var(--accent); background: none; border: 0; padding: 0; cursor: pointer; }
 </style>

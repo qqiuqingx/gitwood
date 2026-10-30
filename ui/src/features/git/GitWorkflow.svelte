@@ -34,6 +34,15 @@
   let outcome = $state<RemoteOutcome | null>(null);
   let affectedFiles = $state<string[]>([]);
   let result = $state<CommitPushResult | null>(null);
+  let workflowDialog = $state<HTMLDialogElement>();
+  let editingTarget = $state(false);
+  let pushMenu = $state<HTMLElement | null>(null);
+  const projectName = $derived(browser.project?.root.split(/[\\/]/).filter(Boolean).pop() ?? '');
+  // Modal so the dialog is centred above the window instead of anchored to the title bar.
+  $effect(() => {
+    const element = workflowDialog;
+    if (element && dialog && !element.open) element.showModal();
+  });
 
   const current = $derived(browser.refs?.head.head ?? 'HEAD');
   const refs = $derived(browser.refs);
@@ -67,14 +76,14 @@
   function closeDialog() { if (!busy) { dialog = null; outcome = null; error = null; result = null; } }
   function openPush(options: PushOptions | null) {
     pushOptions = options ?? defaultPushOptions(browser.refs!);
-    preview = null; previewSelection = ''; dialog = 'push'; outcome = null; error = null; void loadPreview();
+    preview = null; previewSelection = ''; editingTarget = false; dialog = 'push'; outcome = null; error = null; void loadPreview();
   }
   async function loadPreview(startAt = 0) {
     if (!browser.project || !refs) return;
     previewLoading = true; error = null;
     try {
       const value = await invoke<PushPreview>('push_preview', { generation: browser.generation, options: pushOptions, start: startAt, limit: 200 });
-      preview = startAt === 0 ? value : { ...value, commits: [...(preview?.commits ?? []), ...value.commits] };
+      preview = startAt === 0 ? value : { ...value, commits: [...(preview?.commits ?? []), ...value.commits], subjects: [...(preview?.subjects ?? []), ...value.subjects] };
       previewSelection ||= value.commits[0] ?? '';
     } catch (cause) { error = cause as RemoteError; }
     finally { previewLoading = false; }
@@ -121,9 +130,10 @@
   export function update() { void openUpdate(); }
   export function push() { openPush(null); }
   async function submitUpdate() { await write('update_project', updateRequest(updateStrategy)); }
-  async function submitPush() {
-    await write('push', { options: pushOptions });
+  async function submitPush(force = false) {
+    await write('push', { options: { ...pushOptions, forceWithLease: force } });
   }
+  function applyTarget() { editingTarget = false; preview = null; previewSelection = ''; void loadPreview(); }
   export async function commitAndPush() {
     if (!browser.commit.message.trim() || !browser.commit.count) return;
     busy = true; progress = ''; error = null; result = null;
@@ -161,7 +171,8 @@
 {#if popup && refs}<Popup items={branchItems} label="Git Branches" anchor={branchAnchor} onclose={() => { popup = false; }} />{/if}
 
 {#if dialog}
-  <dialog open class="workflow-dialog" aria-labelledby="workflow-title">
+  <dialog bind:this={workflowDialog} class="workflow-dialog" class:push={dialog === 'push'} aria-labelledby="workflow-title"
+    oncancel={event => { event.preventDefault(); closeDialog(); }}>
     {#if dialog === 'new'}
       <h2 id="workflow-title">New Branch</h2>
       <label>Name <input bind:value={name} aria-invalid={name.length > 0 && !/^[^\s~^:?*\[\\]+$/.test(name)} /></label>
@@ -190,13 +201,36 @@
       <p class="hint">Default: {updateStrategy}.</p>
       <footer><button onclick={closeDialog}>Cancel</button><button disabled={updateStrategyLoading} onclick={() => void submitUpdate()}>Update</button></footer>
     {:else if dialog === 'push'}
-      <h2 id="workflow-title">Push</h2>
-      <div class="push-grid"><section><label>Remote <input bind:value={pushOptions.remote} placeholder="origin" /></label><label>Branch <input bind:value={pushOptions.branch} placeholder={branchForPreview(refs, pushOptions) ?? ''} /> {#if newTarget}<span class="new-target">New</span>{/if}</label>
-        <label><input type="checkbox" bind:checked={pushOptions.forceWithLease} /> Force Push (with lease)</label><label><input type="checkbox" bind:checked={pushOptions.tags} /> Push Tags</label>
-        <button onclick={() => void loadPreview()} disabled={previewLoading}>Preview</button><ol>{#each preview?.commits ?? [] as hash}<li><button class:selected={previewSelection === hash} onclick={() => chooseCommit(hash)}>{hash}</button></li>{/each}</ol>
-        {#if preview && preview.total > preview.commits.length}<button onclick={() => void loadPreview(preview!.commits.length)}>Load next page</button>{/if}</section>
-        <section class="push-detail"><strong>{previewSelection || 'Select a commit'}</strong>{#if previewSelection}<div class="push-files"><PagedFileTree hash={previewSelection} generation={browser.generation} onerror={cause => { error = cause as RemoteError; }} /></div>{:else}<p>Select a commit to view changed files.</p>{/if}</section></div>
-      <footer><button onclick={closeDialog}>Cancel</button><button disabled={!pushOptions.remote && !pushOptions.branch} onclick={() => void submitPush()}>Push</button></footer>
+      <h2 id="workflow-title">Push Commits to {projectName}</h2>
+      <div class="push-grid">
+        <section class="push-commits">
+          <div class="push-target">
+            <strong>{current}</strong> →
+            {#if editingTarget}
+              <form class="target-form" onsubmit={event => { event.preventDefault(); applyTarget(); }}>
+                <select aria-label="Remote" bind:value={pushOptions.remote}>{#each Object.keys(refs?.remotes ?? {}) as remote}<option value={remote}>{remote}</option>{/each}</select> :
+                <input aria-label="Branch" bind:value={pushOptions.branch} placeholder={branchForPreview(refs, pushOptions) ?? ''} />
+              </form>
+            {:else}
+              <button class="link" title="Edit target" onclick={() => { editingTarget = true; }}>{preview?.remote ?? pushOptions.remote ?? ''} : {preview?.branch ?? pushOptions.branch ?? ''}</button>
+            {/if}
+            {#if newTarget}<span class="new-target">New</span>{/if}
+          </div>
+          <ol>
+            {#each preview?.commits ?? [] as hash, index}<li><button class:selected={previewSelection === hash} title={hash} onclick={() => chooseCommit(hash)}>{preview?.subjects[index] || hash.slice(0, 8)}</button></li>{/each}
+          </ol>
+          {#if previewLoading}<p class="hint">Loading…</p>{:else if preview && !preview.total}<p class="hint">Nothing to push</p>{/if}
+          {#if preview && preview.total > preview.commits.length}<button class="link" onclick={() => void loadPreview(preview!.commits.length)}>Load more commits</button>{/if}
+        </section>
+        <section class="push-detail">{#if previewSelection}<PagedFileTree hash={previewSelection} generation={browser.generation} onerror={cause => { error = cause as RemoteError; }} />{:else}<p class="hint">No commits selected</p>{/if}</section>
+      </div>
+      <footer class="push-footer">
+        <label><input type="checkbox" bind:checked={pushOptions.tags} /> Push tags</label>
+        <span class="spacer"></span>
+        <button onclick={closeDialog}>Cancel</button>
+        <span class="split"><button class="default" disabled={busy || editingTarget || (!pushOptions.remote && !pushOptions.branch)} onclick={() => void submitPush()}>Push</button><button class="default arrow" aria-label="More push options" aria-haspopup="menu" disabled={busy || editingTarget} onclick={event => { pushMenu = event.currentTarget; }}>⌄</button></span>
+      </footer>
+      {#if pushMenu}<Popup label="Push" anchor={pushMenu} items={[{ id: 'force', label: 'Force Push', run: () => void submitPush(true) }]} onclose={() => { pushMenu = null; }} />{/if}
     {/if}
     {#if busy}<p role="status">{progress || 'Working…'} <progress></progress><button onclick={() => void invoke('cancel_write', { generation: browser.generation })}>Cancel</button></p>{/if}
     {#if outcome}<p role="status">{outcomeText(outcome)}</p>{#if outcome.kind === 'conflicts' || outcome.kind === 'interrupted'}<button onclick={() => void write('abort_update', { stash: outcomeStash(outcome) })}>Abort Update</button>{/if}{/if}
@@ -211,15 +245,22 @@
   .remote-actions { display: inline-flex; gap: 2px; margin-inline-start: auto; }
   .workflow-dialog { width: min(760px, 88vw); max-height: 86vh; overflow: auto; color: var(--text-primary); background: var(--popup-bg); border: var(--border-width) solid var(--popup-border); padding: var(--space-panel-x); }
   .workflow-dialog::backdrop { background: #0008; }
+  .workflow-dialog.push { width: min(900px, 92vw); }
   h2 { margin-block-start: 0; font-size: calc(var(--font-ui-size) * 1.15); }
   label { display: block; margin-block: var(--space-panel-y); } input:not([type='checkbox']):not([type='radio']) { display: block; width: 100%; font: inherit; color: var(--input-fg); background: var(--input-bg); border: var(--border-width) solid var(--input-border); padding: var(--space-panel-y); }
   footer { display: flex; justify-content: end; gap: var(--space-inline); margin-top: var(--space-panel-x); } footer button { font: inherit; padding: var(--space-panel-y) var(--space-panel-x); }
   .invalid,.error { color: var(--status-conflicted); } .hint { color: var(--text-secondary); font-size: var(--font-small-size); }
   .new-target { color: var(--accent); font-size: var(--font-small-size); }
-  .push-grid { display: grid; grid-template-columns: minmax(250px, 1fr) minmax(220px, 1fr); gap: var(--space-panel-x); min-height: 260px; }
-  ol { max-height: 32vh; overflow: auto; padding-inline-start: 26px; } ol button { width: 100%; text-align: start; border: 0; background: none; color: inherit; padding: 3px; } ol button.selected { background: var(--selection-bg); }
-  .push-detail { border-inline-start: var(--border-width) solid var(--separator); padding-inline-start: var(--space-panel-x); }
-  .push-files { height: 260px; min-height: 0; margin-top: var(--space-panel-y); border-top: var(--border-width) solid var(--separator); }
+  .push-grid { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); height: min(420px, 60vh); border: var(--border-width) solid var(--separator); }
+  .push-commits { display: flex; flex-direction: column; min-height: 0; overflow: auto; padding: var(--space-panel-y) var(--space-inline); }
+  .push-target { display: flex; align-items: center; gap: calc(var(--space-inline) / 2); padding-block: calc(var(--space-panel-y) / 2); }
+  .target-form { display: flex; align-items: center; gap: calc(var(--space-inline) / 2); }
+  .target-form select, .target-form input { font: inherit; color: var(--input-fg); background: var(--input-bg); border: var(--border-width) solid var(--input-border); }
+  .target-form input:not([type='checkbox']) { display: inline-block; width: calc(var(--font-ui-size) * 10); padding: 0 calc(var(--space-inline) / 2); }
+  .link { font: inherit; color: var(--accent); background: none; border: 0; padding: 0; cursor: pointer; text-align: start; }
+  ol { list-style: none; margin: 0; padding-inline-start: calc(var(--space-inline) * 2); } ol button { width: 100%; text-align: start; border: 0; background: none; color: inherit; font: inherit; padding: 2px var(--space-inline); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; } ol button.selected { background: var(--selection-bg); }
+  .push-detail { min-height: 0; border-inline-start: var(--border-width) solid var(--separator); }
+  .push-footer { align-items: center; } .push-footer label { margin: 0; } .spacer { flex: 1; }
+  .split { display: inline-flex; } .split .arrow { padding-inline: var(--space-inline); border-inline-start: 0; }
   code { font-family: var(--font-editor-family); }
-  @media (max-width: 650px) { .push-grid { grid-template-columns: 1fr; } .push-detail { border-inline-start: 0; border-top: var(--border-width) solid var(--separator); padding: var(--space-panel-y) 0; } }
 </style>
