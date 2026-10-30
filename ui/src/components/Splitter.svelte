@@ -1,6 +1,7 @@
 <script lang="ts">
-  import { onMount, untrack, type Snippet } from 'svelte';
+  import { onMount, type Snippet } from 'svelte';
   import { constrainSplit } from './splitter';
+  import { panelSplit } from '../layout/state';
 
   interface Props {
     axis?: 'x' | 'y';
@@ -10,20 +11,23 @@
     minFirst: number;
     minSecond: number;
     initialRatio?: number;
+    ratio?: number;
+    firstVisible?: boolean;
+    secondVisible?: boolean;
   }
 
   let {
     axis = 'x', label, first, second, minFirst, minSecond, initialRatio = 0.5,
+    ratio = $bindable(initialRatio), firstVisible = true, secondVisible = true,
   }: Props = $props();
 
   let container: HTMLDivElement;
   let handle: HTMLDivElement;
   let available = $state(0);
-  let ratio = $state(untrack(() => initialRatio));
   let dragging = $state(false);
   let dragStart: { pointer: number; position: number; first: number } | undefined;
-  const sizes = $derived(constrainSplit(available * ratio, available, minFirst, minSecond));
-  const tracks = $derived(`${sizes.first}px var(--splitter-size) minmax(0, 1fr)`);
+  const sizes = $derived(panelSplit(ratio, available, minFirst, minSecond, firstVisible, secondVisible));
+  const tracks = $derived(`${sizes.first}px ${firstVisible && secondVisible ? 'var(--splitter-size)' : '0px'} minmax(0, 1fr)`);
 
   onMount(() => {
     const measure = () => {
@@ -39,7 +43,7 @@
   });
 
   function resize(requested: number) {
-    if (available > 0) {
+    if (available > 0 && firstVisible && secondVisible) {
       ratio = constrainSplit(requested, available, minFirst, minSecond).first / available;
     }
   }
@@ -91,10 +95,11 @@
   style:grid-template-columns={axis === 'x' ? tracks : undefined}
   style:grid-template-rows={axis === 'y' ? tracks : undefined}
 >
-  <div class="pane">{@render first()}</div>
+  <div class="pane" hidden={!firstVisible}>{@render first()}</div>
   <!-- svelte-ignore a11y_no_noninteractive_tabindex, a11y_no_noninteractive_element_interactions (A focusable separator is the WAI-ARIA window splitter pattern, with range values and keyboard resizing.) -->
   <div
     class="handle"
+    hidden={!firstVisible || !secondVisible}
     bind:this={handle}
     role="separator"
     tabindex="0"
@@ -110,7 +115,7 @@
     onlostpointercapture={stop}
     onkeydown={keyboard}
   ></div>
-  <div class="pane">{@render second()}</div>
+  <div class="pane" hidden={!secondVisible}>{@render second()}</div>
 </div>
 
 <style>
@@ -125,6 +130,12 @@
   }
   .splitter.vertical { grid-template-columns: minmax(0, 1fr); }
   .pane { min-width: 0; min-height: 0; overflow: hidden; }
+  /* Keep the surviving pane in its track when hidden siblings leave grid layout. */
+  .pane:first-child { grid-column: 1; grid-row: 1; }
+  .handle { grid-column: 2; grid-row: 1; }
+  .pane:last-child { grid-column: 3; grid-row: 1; }
+  .vertical > .handle { grid-column: 1; grid-row: 2; }
+  .vertical > .pane:last-child { grid-column: 1; grid-row: 3; }
   .handle {
     background: var(--separator);
     cursor: col-resize;

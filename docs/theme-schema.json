@@ -1,0 +1,481 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Gitwood theme v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "name",
+    "author",
+    "dark",
+    "colors"
+  ],
+  "properties": {
+    "$schema": {
+      "type": "string"
+    },
+    "schemaVersion": {
+      "const": 1
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1
+    },
+    "author": {
+      "type": "string",
+      "minLength": 1
+    },
+    "dark": {
+      "type": "boolean"
+    },
+    "extends": {
+      "enum": [
+        "light",
+        "dark",
+        "walnut"
+      ]
+    },
+    "colors": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "background.primary": {
+          "$ref": "#/$defs/color"
+        },
+        "background.secondary": {
+          "$ref": "#/$defs/color"
+        },
+        "background.header": {
+          "$ref": "#/$defs/color"
+        },
+        "text.primary": {
+          "$ref": "#/$defs/color"
+        },
+        "text.secondary": {
+          "$ref": "#/$defs/color"
+        },
+        "text.header": {
+          "$ref": "#/$defs/color"
+        },
+        "text.header.secondary": {
+          "$ref": "#/$defs/color"
+        },
+        "text.disabled": {
+          "$ref": "#/$defs/color"
+        },
+        "accent": {
+          "$ref": "#/$defs/color"
+        },
+        "selection.bg": {
+          "$ref": "#/$defs/color"
+        },
+        "selection.fg": {
+          "$ref": "#/$defs/color"
+        },
+        "selection.inactive.bg": {
+          "$ref": "#/$defs/color"
+        },
+        "separator": {
+          "$ref": "#/$defs/color"
+        },
+        "focus.border": {
+          "$ref": "#/$defs/color"
+        },
+        "button.bg": {
+          "$ref": "#/$defs/color"
+        },
+        "button.fg": {
+          "$ref": "#/$defs/color"
+        },
+        "button.hover.bg": {
+          "$ref": "#/$defs/color"
+        },
+        "button.disabled.bg": {
+          "$ref": "#/$defs/color"
+        },
+        "button.disabled.fg": {
+          "$ref": "#/$defs/color"
+        },
+        "button.border": {
+          "$ref": "#/$defs/color"
+        },
+        "input.bg": {
+          "$ref": "#/$defs/color"
+        },
+        "input.fg": {
+          "$ref": "#/$defs/color"
+        },
+        "input.border": {
+          "$ref": "#/$defs/color"
+        },
+        "input.placeholder": {
+          "$ref": "#/$defs/color"
+        },
+        "input.disabled.bg": {
+          "$ref": "#/$defs/color"
+        },
+        "popup.bg": {
+          "$ref": "#/$defs/color"
+        },
+        "popup.fg": {
+          "$ref": "#/$defs/color"
+        },
+        "popup.border": {
+          "$ref": "#/$defs/color"
+        },
+        "popup.shadow": {
+          "$ref": "#/$defs/color"
+        },
+        "menu.bg": {
+          "$ref": "#/$defs/color"
+        },
+        "menu.fg": {
+          "$ref": "#/$defs/color"
+        },
+        "menu.selection.bg": {
+          "$ref": "#/$defs/color"
+        },
+        "menu.selection.fg": {
+          "$ref": "#/$defs/color"
+        },
+        "menu.disabled.fg": {
+          "$ref": "#/$defs/color"
+        },
+        "tooltip.bg": {
+          "$ref": "#/$defs/color"
+        },
+        "tooltip.fg": {
+          "$ref": "#/$defs/color"
+        },
+        "tooltip.border": {
+          "$ref": "#/$defs/color"
+        },
+        "scrollbar.track": {
+          "$ref": "#/$defs/color"
+        },
+        "scrollbar.thumb": {
+          "$ref": "#/$defs/color"
+        },
+        "scrollbar.hover": {
+          "$ref": "#/$defs/color"
+        },
+        "toolbar.bg": {
+          "$ref": "#/$defs/color"
+        },
+        "toolbar.hover.bg": {
+          "$ref": "#/$defs/color"
+        },
+        "toolbar.fg": {
+          "$ref": "#/$defs/color"
+        },
+        "tab.bg": {
+          "$ref": "#/$defs/color"
+        },
+        "tab.active.bg": {
+          "$ref": "#/$defs/color"
+        },
+        "tab.fg": {
+          "$ref": "#/$defs/color"
+        },
+        "tab.active.fg": {
+          "$ref": "#/$defs/color"
+        },
+        "tab.active.border": {
+          "$ref": "#/$defs/color"
+        },
+        "diff.added.bg": {
+          "$ref": "#/$defs/color"
+        },
+        "diff.added.inline": {
+          "$ref": "#/$defs/color"
+        },
+        "diff.removed.bg": {
+          "$ref": "#/$defs/color"
+        },
+        "diff.removed.inline": {
+          "$ref": "#/$defs/color"
+        },
+        "diff.modified.inline": {
+          "$ref": "#/$defs/color"
+        },
+        "diff.modified.bg": {
+          "$ref": "#/$defs/color"
+        },
+        "diff.gutter.bg": {
+          "$ref": "#/$defs/color"
+        },
+        "diff.gutter.fg": {
+          "$ref": "#/$defs/color"
+        },
+        "diff.gutter.added": {
+          "$ref": "#/$defs/color"
+        },
+        "diff.gutter.removed": {
+          "$ref": "#/$defs/color"
+        },
+        "diff.gutter.modified": {
+          "$ref": "#/$defs/color"
+        },
+        "graph.lanes": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 32,
+          "items": {
+            "$ref": "#/$defs/color"
+          }
+        },
+        "graph.head": {
+          "$ref": "#/$defs/color"
+        },
+        "graph.merge": {
+          "$ref": "#/$defs/color"
+        },
+        "label.branch.local": {
+          "$ref": "#/$defs/color"
+        },
+        "label.branch.remote": {
+          "$ref": "#/$defs/color"
+        },
+        "label.tag": {
+          "$ref": "#/$defs/color"
+        },
+        "label.head": {
+          "$ref": "#/$defs/color"
+        },
+        "status.added": {
+          "$ref": "#/$defs/color"
+        },
+        "status.modified": {
+          "$ref": "#/$defs/color"
+        },
+        "status.deleted": {
+          "$ref": "#/$defs/color"
+        },
+        "status.renamed": {
+          "$ref": "#/$defs/color"
+        },
+        "status.untracked": {
+          "$ref": "#/$defs/color"
+        },
+        "status.conflicted": {
+          "$ref": "#/$defs/color"
+        },
+        "status.ignored": {
+          "$ref": "#/$defs/color"
+        },
+        "syntax.keyword": {
+          "$ref": "#/$defs/color"
+        },
+        "syntax.string": {
+          "$ref": "#/$defs/color"
+        },
+        "syntax.comment": {
+          "$ref": "#/$defs/color"
+        },
+        "syntax.number": {
+          "$ref": "#/$defs/color"
+        },
+        "syntax.type": {
+          "$ref": "#/$defs/color"
+        },
+        "syntax.function": {
+          "$ref": "#/$defs/color"
+        },
+        "syntax.operator": {
+          "$ref": "#/$defs/color"
+        },
+        "syntax.variable": {
+          "$ref": "#/$defs/color"
+        },
+        "font.ui.family": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256,
+          "pattern": "^[a-zA-Z0-9 ,\"'._-]+$"
+        },
+        "font.editor.family": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256,
+          "pattern": "^[a-zA-Z0-9 ,\"'._-]+$"
+        },
+        "font.ui.size": {
+          "type": "string",
+          "pattern": "^(0|[1-9][0-9]?)(\\.[0-9]+)?px$"
+        },
+        "font.editor.size": {
+          "type": "string",
+          "pattern": "^(0|[1-9][0-9]?)(\\.[0-9]+)?px$"
+        },
+        "font.editor.lineHeight": {
+          "type": "string",
+          "pattern": "^(1(\\.[0-9]+)?|2(\\.0+)?)$"
+        },
+        "font.small.size": {
+          "type": "string",
+          "pattern": "^(0|[1-9][0-9]?)(\\.[0-9]+)?px$"
+        },
+        "font.weight.heading": {
+          "type": "string",
+          "enum": [
+            "100",
+            "200",
+            "300",
+            "400",
+            "500",
+            "600",
+            "700",
+            "800",
+            "900"
+          ]
+        },
+        "line.height.ui": {
+          "type": "string",
+          "pattern": "^(1(\\.[0-9]+)?|2(\\.0+)?)$"
+        },
+        "space.inline": {
+          "type": "string",
+          "pattern": "^(0|[1-9][0-9]?)(\\.[0-9]+)?px$"
+        },
+        "space.panel.x": {
+          "type": "string",
+          "pattern": "^(0|[1-9][0-9]?)(\\.[0-9]+)?px$"
+        },
+        "space.panel.y": {
+          "type": "string",
+          "pattern": "^(0|[1-9][0-9]?)(\\.[0-9]+)?px$"
+        },
+        "space.header.y": {
+          "type": "string",
+          "pattern": "^(0|[1-9][0-9]?)(\\.[0-9]+)?px$"
+        },
+        "splitter.size": {
+          "type": "string",
+          "pattern": "^(0|[1-9][0-9]?)(\\.[0-9]+)?px$"
+        },
+        "border.width": {
+          "type": "string",
+          "pattern": "^(0|[1-9][0-9]?)(\\.[0-9]+)?px$"
+        },
+        "focus.width": {
+          "type": "string",
+          "pattern": "^(0|[1-9][0-9]?)(\\.[0-9]+)?px$"
+        },
+        "list.disabled.opacity": {
+          "type": "string",
+          "pattern": "^(0(?:\\.[0-9]+)?|1(?:\\.0+)?)$"
+        },
+        "list.row.height": {
+          "type": "string",
+          "pattern": "^[0-9]+(?:\\.[0-9]+)?px$"
+        },
+        "list.selection.bg": {
+          "type": "string",
+          "pattern": "^#(?:[0-9a-fA-F]{3,4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$"
+        },
+        "list.selection.inactive.bg": {
+          "type": "string",
+          "pattern": "^#(?:[0-9a-fA-F]{3,4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$"
+        },
+        "list.selection.inactive.text": {
+          "type": "string",
+          "pattern": "^#(?:[0-9a-fA-F]{3,4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$"
+        },
+        "list.selection.text": {
+          "type": "string",
+          "pattern": "^#(?:[0-9a-fA-F]{3,4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$"
+        },
+        "popup.height": {
+          "type": "string",
+          "pattern": "^[0-9]+(?:\\.[0-9]+)?px$"
+        },
+        "popup.padding": {
+          "type": "string",
+          "pattern": "^[0-9]+(?:\\.[0-9]+)?px$"
+        },
+        "popup.viewport.margin": {
+          "type": "string",
+          "pattern": "^[0-9]+(?:\\.[0-9]+)?px$"
+        },
+        "popup.width": {
+          "type": "string",
+          "pattern": "^[0-9]+(?:\\.[0-9]+)?px$"
+        },
+        "search.bg": {
+          "type": "string",
+          "pattern": "^#(?:[0-9a-fA-F]{3,4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$"
+        },
+        "search.border": {
+          "type": "string",
+          "pattern": "^#(?:[0-9a-fA-F]{3,4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$"
+        },
+        "search.error.bg": {
+          "type": "string",
+          "pattern": "^#(?:[0-9a-fA-F]{3,4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$"
+        },
+        "search.error.text": {
+          "type": "string",
+          "pattern": "^#(?:[0-9a-fA-F]{3,4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$"
+        },
+        "search.match.bg": {
+          "type": "string",
+          "pattern": "^#(?:[0-9a-fA-F]{3,4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$"
+        },
+        "search.match.text": {
+          "type": "string",
+          "pattern": "^#(?:[0-9a-fA-F]{3,4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$"
+        },
+        "search.text": {
+          "type": "string",
+          "pattern": "^#(?:[0-9a-fA-F]{3,4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$"
+        },
+        "search.width": {
+          "type": "string",
+          "pattern": "^[0-9]+(?:\\.[0-9]+)?px$"
+        },
+        "tab.close.size": {
+          "type": "string",
+          "pattern": "^[0-9]+(?:\\.[0-9]+)?px$"
+        },
+        "tab.disabled.opacity": {
+          "type": "string",
+          "pattern": "^(0(?:\\.[0-9]+)?|1(?:\\.0+)?)$"
+        },
+        "toolbar.active.bg": {
+          "type": "string",
+          "pattern": "^#(?:[0-9a-fA-F]{3,4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$"
+        },
+        "toolbar.button.size": {
+          "type": "string",
+          "pattern": "^[0-9]+(?:\\.[0-9]+)?px$"
+        },
+        "toolbar.disabled.opacity": {
+          "type": "string",
+          "pattern": "^(0(?:\\.[0-9]+)?|1(?:\\.0+)?)$"
+        },
+        "tooltip.offset": {
+          "type": "string",
+          "pattern": "^[0-9]+(?:\\.[0-9]+)?px$"
+        },
+        "tooltip.text": {
+          "type": "string",
+          "pattern": "^#(?:[0-9a-fA-F]{3,4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$"
+        },
+        "tree.disclosure.size": {
+          "type": "string",
+          "pattern": "^[0-9]+(?:\\.[0-9]+)?px$"
+        },
+        "tree.indent": {
+          "type": "string",
+          "pattern": "^[0-9]+(?:\\.[0-9]+)?px$"
+        }
+      }
+    }
+  },
+  "$defs": {
+    "color": {
+      "type": "string",
+      "pattern": "^#([a-fA-F0-9]{3}|[a-fA-F0-9]{4}|[a-fA-F0-9]{6}|[a-fA-F0-9]{8})$"
+    }
+  }
+}

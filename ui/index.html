@@ -3,6 +3,9 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!-- Tauri 2 replaces this token and adds the nonce to style-src at asset load.
+         CodeMirror reuses it for its runtime stylesheet; the CSP stays strict. -->
+    <meta name="gitwood-style-nonce" content="__TAURI_STYLE_NONCE__" />
     <title>Gitwood</title>
   </head>
   <body>

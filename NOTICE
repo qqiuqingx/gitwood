@@ -9,6 +9,9 @@ Tauri / tauri-build / @tauri-apps/api / @tauri-apps/cli: MIT OR Apache-2.0.
 Svelte / @sveltejs/vite-plugin-svelte / svelte-check: MIT.
 Vite / Vitest / pnpm: MIT.
 TypeScript: Apache-2.0. Node.js type definitions: MIT.
+Theme/settings serialization: serde / serde_json: MIT OR Apache-2.0.
+Git core runtime: thiserror / tempfile: MIT OR Apache-2.0; Tokio / tokio-util: MIT.
+Their locked transitive dependencies and original notices are included in the inventory.
 The locked transitive dependency inventory and license notices are recorded in
 docs/third-party-licenses.md. Dependency licenses apply to their respective code;
 Gitwood's Apache-2.0 license does not replace those terms.
@@ -16,11 +19,103 @@ Transitive MPL-2.0 libraries remain under MPL-2.0, without modifications; exact
 source archives are linked in that inventory. Permissive alternatives are selected
 where dual/triple licenses offer LGPL alongside MIT/Apache-2.0.
 
-Ported code / icons from intellij-community (reserved register)
--------------------------------------------------------------
-No code or icons from intellij-community have been ported in this skeleton.
-For each future port, record the upstream file, revision, exact license,
-copyright notice, local destination, and modifications here before inclusion.
+Ported code from intellij-community
+----------------------------------
+Upstream: https://github.com/JetBrains/intellij-community
+Revision: 0698a5fe297dfa08069f015cc423a6a85ed7fc60 (2026-10-29)
+License of each Java/Kotlin source listed below: Apache-2.0, stated in its header.
+Copyright 2000-2024 JetBrains s.r.o. and contributors.
+GraphColorManagerImpl.kt: Copyright 2000-2023 JetBrains s.r.o. and contributors.
+
+Upstream NOTICE.txt attribution:
+This software includes code from IntelliJ IDEA
+Copyright (C) JetBrains s.r.o.
+https://www.jetbrains.com/idea/
+
+Paths below are relative to platform/vcs-log/ at the revision above.
+
+Local crates/gitwood-core/src/history/graph.rs:
+  graph/src/com/intellij/vcs/log/graph/impl/permanent/PermanentLinearGraphBuilder.java
+  graph/src/com/intellij/vcs/log/graph/impl/permanent/DuplicateParentFixer.java
+  Modifications: Rust u32 IDs, binary hash array, CSR edge storage, strict closed
+  topological input validation; no implicit simple-edge compression/unloaded IDs.
+
+Local crates/gitwood-core/src/history/layout.rs:
+  graph/src/com/intellij/vcs/log/graph/impl/permanent/GraphLayoutBuilder.kt
+  graph/src/com/intellij/vcs/log/graph/impl/permanent/GraphLayoutImpl.kt
+  graph/src/com/intellij/vcs/log/graph/impl/print/GraphColorGetterByHead.kt
+  graph/src/com/intellij/vcs/log/graph/impl/facade/PrintElementPresentationManagerImpl.kt
+  impl/src/com/intellij/vcs/log/graph/GraphColorManagerImpl.kt
+  Modifications: iterative Rust DFS with parent cursors, precomputed color IDs,
+  caller-ordered heads/representative refs, theme-palette index mapping.
+
+Local crates/gitwood-core/src/history/print.rs:
+  graph/src/com/intellij/vcs/log/graph/impl/print/GraphElementComparatorByLayoutIndex.java
+  graph/src/com/intellij/vcs/log/graph/impl/print/PrintElementGeneratorImpl.kt
+  Modifications: flat viewport-only Rust drawing payload, exact interval lookup
+  instead of SLRU row walking, all normal long edges retained, no arrows/dashes,
+  selection state or graph filtering controllers.
+
+Local crates/gitwood-core/src/history/tests.rs:
+  graph/test/com/intellij/vcs/log/graph/impl/permanent/GraphLayoutBuilderHeadOrderTest.kt
+  graph/testData/elementGenerator/manyNodes_in.txt
+  graph/testData/elementGenerator/manyNodes_out.txt
+  Modifications: adapted geometry/head-order assertions and numeric hash fixtures;
+  the dashed normal edge in manyNodes is treated as solid with unchanged geometry.
+
+Additional files inspected, algorithm details and differences are recorded in
+docs/architecture.md under 提交图. No JetBrains icons or branding are included.
 
 The original branching wood-grain application icon in src-tauri/icons/source.svg
 and its generated variants are Copyright 2026 Gitwood contributors, Apache-2.0.
+
+Theme color and shortcut references from intellij-community
+--------------------------------------------------------
+Upstream/revision: same intellij-community revision recorded above.
+Reference color data (Apache-2.0):
+  platform/platform-resources/src/themes/expUI/expUI_light.theme.json
+  platform/platform-resources/src/themes/expUI/expUI_dark.theme.json
+  platform/platform-resources/src/themes/expUI/expUI_lightScheme.xml
+  platform/platform-resources/src/themes/expUI/expUI_darkScheme.xml
+Local: crates/gitwood-core/src/theme/builtin/{light,dark}.json.
+Modifications: selected Int UI palette, file-status and syntax color values mapped
+into Gitwood semantic variables; Gitwood-specific semantic fills and metrics added.
+No JetBrains product theme loader, artwork, icons or branding are included.
+Walnut uses the Gitwood interaction prototype palette and additional semantic colors.
+Shortcut reference: platform/platform-resources/src/keymaps/Mac OS X 10.5+.xml,
+ActivateCommitToolWindow (meta 0) and ActivateVersionControlToolWindow (meta 9).
+Windows/Linux shortcut data: the same keymap directory, $default.xml,
+ActivateCommitToolWindow (alt 0) and ActivateVersionControlToolWindow (alt 9).
+
+Speed search matcher adapted from intellij-community
+--------------------------------------------------
+Upstream/revision: same intellij-community revision recorded above (Apache-2.0).
+Copyright 2000-2025 JetBrains s.r.o. and contributors.
+Sources: platform/util/text-matching/src/com/intellij/psi/codeStyle/
+  MinusculeMatcherImpl.kt, NameUtil.java, FixingLayoutMatcher.kt;
+  platform/util/base/src/com/intellij/util/text/NameUtilCore.kt;
+  platform/platform-impl/src/com/intellij/ui/SpeedSearchComparator.java.
+Local: ui/src/components/speed-search.ts.
+Modifications: TypeScript adaptation for SpeedSearchComparator(false,true),
+IGNORE_CASE and empty hard separators, UTF-16 fragments; no matching scores,
+pinyin, typo tolerance or keyboard-layout conversion.
+
+Stage 2 Diff behavior references (independent Rust/TypeScript implementation):
+IntelliJ Community revision 0698a5fe297dfa08069f015cc423a6a85ed7fc60,
+platform/diff-impl/src/com/intellij/diff/tools/util/BaseSyncScrollable.java,
+FoldingModelSupport.java, base/TextDiffSettingsHolder.kt and
+platform/platform-resources/src/keymaps/$default.xml.
+Copyright JetBrains s.r.o. and contributors, Apache-2.0.
+Gitwood uses its own rendering, similar Unicode word comparison, single-level
+fold expansion and disabled application controls; no upstream icons are included.
+
+Phase 2 filtered graph behavior references (no additional third-party dependency):
+JetBrains intellij-community, revision 0698a5fe297dfa08069f015cc423a6a85ed7fc60,
+platform/vcs-log/graph/src/com/intellij/vcs/log/graph/
+  impl/facade/FilteredController.kt
+  collapsing/DottedFilterEdgesGenerator.kt
+  api/elements/GraphEdgeType.java
+  impl/print/elements/EdgePrintElementImpl.kt
+Each source file declares Apache-2.0; copyright JetBrains s.r.o. and contributors.
+Gitwood's independent ancestor traversal marks skipped paths as dotted and renders
+these as dashed lines, following the upstream DOTTED / DASHED naming and behavior.

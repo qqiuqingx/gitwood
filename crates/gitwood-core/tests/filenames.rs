@@ -2,23 +2,14 @@
 //! This fixture does not implement or substitute for the future production Git runner.
 
 use std::fs;
-use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::time::{SystemTime, UNIX_EPOCH};
+use tempfile::TempDir;
 
-struct Fixture(PathBuf);
+struct Fixture(TempDir);
 
 impl Fixture {
     fn new() -> Self {
-        let unique = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("system clock precedes Unix epoch")
-            .as_nanos();
-        let path = Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../../target/filename-fixtures")
-            .join(format!("{}-{unique}", std::process::id()));
-        fs::create_dir_all(&path).expect("create fixture inside the workspace target directory");
-        let fixture = Self(path);
+        let fixture = Self(tempfile::tempdir().expect("create unique system temporary repository"));
         fixture.git(&["init", "--quiet", "--template="]);
         fixture
     }
@@ -27,7 +18,7 @@ impl Fixture {
         let output = Command::new("git")
             .args(["--no-optional-locks", "-c", "core.fsmonitor=false"])
             .args(arguments)
-            .current_dir(&self.0)
+            .current_dir(self.0.path())
             .env("GIT_CONFIG_NOSYSTEM", "1")
             .env(
                 "GIT_CONFIG_GLOBAL",
@@ -45,7 +36,7 @@ impl Fixture {
 
     fn round_trip(&self, names: &[&str]) {
         for name in names {
-            fs::write(self.0.join(name), b"Gitwood filename fixture\n")
+            fs::write(self.0.path().join(name), b"Gitwood filename fixture\n")
                 .expect("write fixture file");
             self.git(&["add", "--", name]);
             let recorded = self.git(&["ls-files", "--cached", "-z", "--", name]);
@@ -56,12 +47,6 @@ impl Fixture {
                 "filename must round-trip with NUL framing"
             );
         }
-    }
-}
-
-impl Drop for Fixture {
-    fn drop(&mut self) {
-        let _ = fs::remove_dir_all(&self.0);
     }
 }
 

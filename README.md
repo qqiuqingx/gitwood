@@ -7,10 +7,18 @@ Svelte 5, and TypeScript. Its interaction design references IntelliJ IDEA.
 Gitwood uses its own name and original icon; it is an independent project.
 No telemetry or usage data is collected.
 
-**Status: early development.** The current application is an empty shell with
-six resizable dividers. Repository browsing and Git operations are not implemented.
-v0.1 targets macOS; Windows and Linux builds are configured in CI, with releases
-planned from v0.2. CI has not been run on GitHub yet.
+**Status: v0.1 local-use development.** The application can open a local
+repository, browse history and diffs, commit selected changes, use the IDEA-style
+branch popup, create/checkout/rename/delete branches, fetch/update/push, and run
+Commit and Push through the real IPC path. v0.1 targets macOS; Windows and Linux
+builds are configured in CI, with releases planned from v0.2.
+
+### Known limitations
+
+- There is no credential input dialog; Git uses the configured credential helper and SSH setup.
+- Conflict resolution is deferred to v0.2.
+- Windows and Linux have not been runtime-verified.
+- macOS artifacts are not notarized; an unsigned/ad-hoc download may need “Open Anyway”.
 
 ## Build from source
 
@@ -73,8 +81,10 @@ the frontend assets; `pnpm tauri build` builds those automatically.
 
 See the [implementation plan](docs/implementation-plan.md),
 [architecture](docs/architecture.md), [security rules](SECURITY.md), and
-[contribution guide](CONTRIBUTING.md). Minimum Git version and the macOS E2E
-strategy remain TODO; no Git runner is included yet.
+[contribution guide](CONTRIBUTING.md). The core runner requires Git 2.35.2 or newer;
+the [E2E strategy](docs/architecture.md#e2e-strategy) uses native WebDriver on Windows/Linux and manual native acceptance on macOS. On Windows, install
+[Git for Windows](https://gitforwindows.org/). The core includes GitRunner and an alternate-index partial-commit probe;
+these operations are not yet exposed by the desktop shell.
 
 ## License
 
