@@ -13,10 +13,11 @@
   import Information from './features/browse/Information.svelte';
   import ErrorDialog from './features/browse/ErrorDialog.svelte';
   import GitWorkflow from './features/git/GitWorkflow.svelte';
+  import ProjectWidget from './features/projects/ProjectWidget.svelte';
   import { RepositoryBrowser } from './features/browse/browser.svelte';
   import { browseText as b } from './i18n/browse';
   const browser = new RepositoryBrowser();
-  let workflow: { commitAndPush: () => void; update: () => void; push: () => void };
+  let workflow = $state<GitWorkflow>();
   let browseReady = $state(false);
   async function chooseRepository() {
     if (!isTauri() || browser.opening) return;
@@ -126,9 +127,9 @@
         if (payload === 'open-project') void chooseRepository();
         else if (payload === 'close-project') void browser.close().catch(error => browser.report(error));
         else if (payload.startsWith('recent:')) void browser.open(payload.slice(7));
-        else if (payload === 'update-project') workflow.update();
+        else if (payload === 'update-project') workflow?.update();
         else if (payload === 'commit-project') document.querySelector<HTMLElement>('.commit-panel textarea')?.focus();
-        else if (payload === 'push-project') workflow.push();
+        else if (payload === 'push-project') workflow?.push();
       });
       if (disposed) { menu(); return; } unlisteners.push(menu);
       await browser.recentProjects();
@@ -142,7 +143,7 @@
 </script>
 
 <main inert={closing}>
-  <header><strong>Gitwood</strong><button class="project" onclick={chooseRepository}>{browser.project?.root.split('/').pop() ?? b('open')} ⌄</button>
+  <header><ProjectWidget {browser} open={() => { void chooseRepository(); }} />
     <GitWorkflow bind:this={workflow} {browser} oncommitpush={() => { browser.commit.result = null; }} />
     <span class="grow"></span><button class="project" aria-label={b('refresh')} title={b('refresh')} disabled={!browser.project} onclick={() => { void browser.refresh({ status: true, refs: true, history: true }); }}>⟳</button>{#if version}<span>{version}</span>{/if}
   </header>
@@ -164,7 +165,7 @@
               {#snippet first()}<Branches refs={browser.refs} branch={browser.filter.branch} select={branch => { void browser.applyFilter({ ...browser.filter, branch }); }} />{/snippet}
               {#snippet second()}
                 <Splitter label={t('commitsInformation')} minFirst={260} minSecond={220} bind:ratio={layout.ratios.commitsInformation}>
-                  {#snippet first()}<HistoryList {browser} />{/snippet}
+                  {#snippet first()}<HistoryList {browser} handlers={workflow?.branchHandlers()} />{/snippet}
                   {#snippet second()}<Information {browser} label={t('filesDetails')} bind:ratio={layout.ratios.filesDetails} />{/snippet}
                 </Splitter>
               {/snippet}
@@ -188,7 +189,6 @@
 <style>
   main { display: flex; flex-direction: column; height: 100%; }
   header, footer { display: flex; align-items: center; gap: var(--space-inline); flex: none; padding: var(--space-header-y) var(--space-panel-x); background: var(--background-header); color: var(--text-header); border-bottom: var(--border-width) solid var(--separator); }
-  strong { font-weight: var(--font-weight-heading); }
   header span { color: var(--text-header-secondary); font-size: var(--font-small-size); }
   .project { background: none; color: inherit; border: 0; }
   .grow { flex: 1; }

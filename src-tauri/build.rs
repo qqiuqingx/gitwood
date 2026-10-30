@@ -29,6 +29,8 @@ fn main() {
             "last_commit_message",
             "commit_message_history",
             "rollback",
+            "undo_commit",
+            "undo_in_progress",
             "rollback_hunk",
             "rollback_files",
             "create_branch",

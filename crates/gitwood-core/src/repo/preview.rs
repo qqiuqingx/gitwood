@@ -28,28 +28,13 @@ pub struct Preview {
 pub struct ContainingBranches {
     pub branches: Vec<String>,
     pub total: usize,
+    pub protected: bool,
 }
 impl Lease {
     pub async fn containing_branches(&self, hash: &str) -> Result<ContainingBranches, GitError> {
-        details::validate_hash(hash)?;
-        let output = self
-            .runner
-            .run(
-                ReadCommand::new(ReadOperation::ForEachRef).args([
-                    "--contains",
-                    hash,
-                    "--format=%(refname)",
-                    "refs/heads",
-                    "refs/remotes",
-                ]),
-                &self.options,
-            )
-            .await?;
-        let names: Vec<_> = String::from_utf8_lossy(&output.stdout)
-            .lines()
-            .map(String::from)
-            .collect();
+        let names = containing_branch_names(&self.runner, &self.options, hash).await?;
         Ok(ContainingBranches {
+            protected: names.iter().any(|name| protected_remote_branch(name)),
             total: names.len(),
             branches: names.into_iter().take(200).collect(),
         })
@@ -198,4 +183,34 @@ impl Lease {
             conflicted: false,
         })
     }
+}
+
+pub(crate) async fn containing_branch_names(
+    runner: &crate::git::GitRunner,
+    options: &crate::git::RunOptions,
+    hash: &str,
+) -> Result<Vec<String>, GitError> {
+    details::validate_hash(hash)?;
+    let output = runner
+        .run(
+            ReadCommand::new(ReadOperation::ForEachRef).args([
+                "--contains",
+                hash,
+                "--format=%(refname)",
+                "refs/heads",
+                "refs/remotes",
+            ]),
+            options,
+        )
+        .await?;
+    Ok(String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .map(String::from)
+        .collect())
+}
+
+pub(crate) fn protected_remote_branch(name: &str) -> bool {
+    name.strip_prefix("refs/remotes/")
+        .and_then(|n| n.split_once('/'))
+        .is_some_and(|(_, branch)| matches!(branch, "main" | "master"))
 }

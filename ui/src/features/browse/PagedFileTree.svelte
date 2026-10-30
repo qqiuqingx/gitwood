@@ -2,11 +2,11 @@
   import { tick, untrack } from 'svelte';
   import { invoke } from '@tauri-apps/api/core';
   import Tree from '../../components/Tree.svelte';
-  import CheckBox from '../../components/CheckBox.svelte';
+  import FileTreeRow from './FileTreeRow.svelte';
+  import { fileRowLabel } from './fileTree';
   import type { Selection, Inclusion } from '../commit/model';
-  import Highlight from '../../components/Highlight.svelte';
   import type { TreeRow } from '../../components/tree';
-  import { RequestGate, fileStatus, findPagedMatch } from './model';
+  import { RequestGate, findPagedMatch } from './model';
   import { browseText as t } from '../../i18n/browse';
   import type { RepoPath } from './types';
   export interface FileRow extends TreeRow { path: RepoPath | null; status: string | null; note: string | null; staged: boolean; unstaged: boolean; conflicted: boolean; count: number }
@@ -46,7 +46,7 @@
           if (positionIds[0] && page.positions[0] === null) selected = new Set();
           if (page.positions[1] !== null) scrollTop = Math.max(0, oldTop + (page.positions[1] - oldAnchor) * rowHeight);
         }
-        page.rows.forEach((row, offset) => incoming.set(page.start + offset, { ...row, parentIndex: row.parentIndex ?? -1, label: ['files', 'changes', 'unversioned'].includes(row.id) ? `${t(row.id as 'files' | 'changes' | 'unversioned')} (${row.count})` : row.label }));
+        page.rows.forEach((row, offset) => incoming.set(page.start + offset, { ...row, parentIndex: row.parentIndex ?? -1, label: fileRowLabel(row, flat) }));
       }
       for (const index of incoming.keys()) if (index < next.start - 200 || index > next.end + 200) incoming.delete(index);
       rows = incoming;
@@ -78,7 +78,7 @@
       const index = await findPagedMatch(total, async (start, end) => {
         const page = await invoke<Page>(changes ? 'repository_changes' : 'commit_file_tree', { generation: epoch, hash, viewport: { expanded: [...expanded], flat, start, end, positionIds: [] } });
         if (!searches.accepts(ticket) || epoch !== generation || selectedTarget !== target) return null;
-        return page.rows.map(row => row.label || t(row.id as 'files' | 'changes' | 'unversioned'));
+        return page.rows.map(row => fileRowLabel(row, flat));
       }, query, active, direction, includeCurrent);
       if (index >= 0 && searches.accepts(ticket)) { await load({ start: index, end: Math.min(total, index + 40) }); await tick(); }
       return searches.accepts(ticket) ? index : -1;
@@ -100,10 +100,7 @@
     }} onrangechange={next => { if (next.end > next.start && (next.start !== range.start || next.end !== range.end)) void load(next); }}>
     {#snippet content(node, query)}
       {@const file = node as FileRow}
-      {#if changes && ontoggle}<CheckBox state={states.get(node.id) ?? 'none'} label={node.label} disabled={file.conflicted || node.id.startsWith('loading:')} onchange={() => ontoggle?.(node.id,states.get(node.id) ?? 'none')} />{/if}
-      <span style:color={file.status ? `var(--status-${fileStatus(file)})` : undefined} title={file.path?.display ?? file.label}><Highlight text={node.label} {query} /></span>
-      {#if file.note}<span class="note">{file.note} →</span>{/if}
-      {#if file.staged || file.unstaged || file.conflicted}<span class="note">{file.conflicted ? t('conflicted') : [file.staged ? t('staged') : '', file.unstaged ? t('unstaged') : ''].filter(Boolean).join(' + ')}</span>{/if}
+      <FileTreeRow {file} {flat} {changes} {query} state={states.get(node.id) ?? 'none'} ontoggle={ontoggle ? () => ontoggle?.(node.id,states.get(node.id) ?? 'none') : undefined} />
     {/snippet}
   </Tree></div>
 </section>
@@ -111,6 +108,5 @@
   section { height: 100%; display: flex; flex-direction: column; min-height: 0; }
   h3 { font: inherit; font-weight: var(--font-weight-heading); margin: 0; padding: var(--space-panel-y) var(--space-inline); border-bottom: var(--border-width) solid var(--separator); }
   h3 span { color: var(--text-secondary); font-weight: normal; }
-  .note { font-size: var(--font-small-size); color: var(--text-secondary); }
   .tree { flex: 1; min-height: 0; }
 </style>

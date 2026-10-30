@@ -7,6 +7,11 @@ export class CommitSession {
   history = $state<string[]>([]);
   count = $state(0); busy = $state(false); task = $state('');
   result = $state<CommitResult | null>(null);
+  restoreUndoMessage(message: string) {
+    this.history = remember(remember(this.history, this.draft), this.message);
+    this.draft = this.message; this.message = message; this.amend = false; this.result = null;
+    this.selection = emptySelection();
+  }
   async submit(generation: number, expected: string) {
     this.busy=true;this.task=t('running');this.result=null;
     try {

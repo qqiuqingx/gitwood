@@ -1,11 +1,39 @@
+import { matchSpeedSearch } from './speed-search';
+import type { Snippet } from 'svelte';
 export interface Rect { x: number; y: number; width: number; height: number }
 export interface PopupItem {
   id: string;
   label: string;
   kind?: 'item' | 'heading' | 'separator';
   disabled?: boolean;
+  description?: string;
+  /** Tooltip, e.g. why an item is disabled (IDEA action description). */
+  hint?: string;
+  icon?: Snippet<[id: string]>;
+  shortcut?: string;
+  groupHeader?: boolean;
+  firstGroup?: boolean;
+  checked?: boolean;
   children?: readonly PopupItem[];
   run?: () => void;
+}
+
+/** Keep a section title only when at least one of its items matches. */
+export function filterPopupItems(items: readonly PopupItem[], query: string): readonly PopupItem[] {
+  if (!query) return items;
+  const result: PopupItem[] = [];
+  let heading: PopupItem | undefined;
+  let hasGroup = false;
+  for (const item of items) {
+    if (item.kind === 'heading') { heading = item; continue; }
+    if (item.kind === 'separator' || matchSpeedSearch(query, `${item.label} ${item.description ?? ''}`) === null) continue;
+    if (heading) {
+      result.push(heading.groupHeader ? { ...heading, firstGroup: !hasGroup } : heading);
+      hasGroup ||= !!heading.groupHeader; heading = undefined;
+    }
+    result.push(item);
+  }
+  return result;
 }
 
 /** Prefer below an anchor (beside for submenus), flip then clamp to viewport. */

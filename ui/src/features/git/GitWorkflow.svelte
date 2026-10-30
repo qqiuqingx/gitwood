@@ -43,7 +43,7 @@
   const handlers: BranchPopupHandlers = {
     checkout: (value) => { name = value; mode = 'normal'; dialog = 'checkout'; popup = false; },
     checkoutRemote: (remote, value) => { name = `${remote}/${value}`; mode = 'normal'; dialog = 'checkout'; popup = false; },
-    newFrom: (value) => { start = value; name = ''; dialog = 'new'; popup = false; },
+    newFrom: (value) => { start = value; name = ''; checkout = true; dialog = 'new'; popup = false; },
     update: () => { void openUpdate(); popup = false; },
     push: (options) => { openPush(options); popup = false; },
     rename: (value) => { name = value; newName = ''; dialog = 'rename'; popup = false; },
@@ -53,6 +53,7 @@
     fetch: () => { popup = false; void fetchRemote(); },
   };
   const branchItems = $derived(refs ? branchPopupItems(refs, handlers) : []);
+  export function branchHandlers(): BranchPopupHandlers { return handlers; }
 
   onMount(() => {
     let disposed = false;

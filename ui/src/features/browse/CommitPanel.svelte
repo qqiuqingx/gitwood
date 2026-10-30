@@ -7,13 +7,29 @@
   import { canCommit, amendMessage, toggleRule } from '../commit/model';
   import RollbackDialog from '../commit/RollbackDialog.svelte';
   import { commitText as c } from '../../i18n/commit';
+  import Popup from '../../components/Popup.svelte';
+  import type { FileRow } from './PagedFileTree.svelte';
   import Toolbar from '../../components/Toolbar.svelte';
   import Tabs from '../../components/Tabs.svelte';
   import PagedFileTree from './PagedFileTree.svelte';
   import type { RepositoryBrowser } from './browser.svelte';
   import { browseText as t } from '../../i18n/browse';
   let { browser, refresh, commitPush = () => {} }: { browser: RepositoryBrowser; refresh: () => void; commitPush?: () => void } = $props();
-  let flat = $state(false);
+  let flat = $state(true);
+  let preview = $state(true);
+  let selectedFile = $state<FileRow>();
+  let optionsAnchor = $state<HTMLButtonElement | null>(null);
+  function previewFile(row: FileRow) {
+    if (row.path) browser.previewFile = { path: row.path, staged: row.staged, unstaged: row.unstaged, hash: '' };
+  }
+  function selectFile(row: FileRow) {
+    selectedFile = row;
+    if (preview) previewFile(row);
+  }
+  function togglePreview() {
+    preview = !preview;
+    if (preview && selectedFile) previewFile(selectedFile);
+  }
   let ids = $state<string[]>([]), rollback = $state(false), history = $state(false);
   let messageBox: HTMLTextAreaElement; let historySelect = $state<HTMLSelectElement>(null!);
   const session = $derived(browser.commit);
@@ -46,7 +62,7 @@
     if(event.key==='Escape' && history){event.preventDefault();history=false;messageBox.focus();return;}
     actions.dispatch(event,keymapFor(detectPlatform(navigator.platform)),event.target instanceof HTMLElement && !!event.target.closest('input,textarea,select'));
   }
-  async function openDiff() {await tick(); document.querySelector<HTMLElement>('.diff-view .cm-content')?.focus();}
+  async function openDiff() {if(selectedFile)previewFile(selectedFile);await tick(); document.querySelector<HTMLElement>('.diff-view .cm-content')?.focus();}
 
   let expanded = $state<ReadonlySet<string>>(new Set(['changes', 'unversioned']));
 </script>
@@ -54,15 +70,24 @@
   {#snippet panel()}
     <!-- svelte-ignore a11y_no_noninteractive_element_interactions (Commit scope shortcuts are delegated from its tree and message input.) -->
     <section class="commit-panel" onkeydown={keyboard} aria-label={t('commit')}>
-      {#snippet refreshIcon()}⟳{/snippet}{#snippet groupIcon()}▱{/snippet}{#snippet expandIcon()}⌄{/snippet}{#snippet collapseIcon()}⌃{/snippet}{#snippet rollbackIcon()}↶{/snippet}
+      {#snippet refreshIcon()}⟳{/snippet}{#snippet optionsIcon()}⚙{/snippet}{#snippet rollbackIcon()}↶{/snippet}
+      {#snippet expandIcon()}<svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" aria-hidden="true"><path d="m5 5 3-3 3 3M5 11l3 3 3-3" /></svg>{/snippet}
+      {#snippet collapseIcon()}<svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" aria-hidden="true"><path d="m5 2 3 3 3-3M5 14l3-3 3 3" /></svg>{/snippet}
+      {#snippet shelfIcon()}<svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" aria-hidden="true"><path d="M8 2v7m-3-3 3 3 3-3M2 10v4h12v-4M2 11h4l1 1h2l1-1h4" /></svg>{/snippet}
+      {#snippet previewIcon()}<svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" aria-hidden="true"><path d="M1 8s2.5-5 7-5 7 5 7 5-2.5 5-7 5-7-5-7-5Z" /><circle cx="8" cy="8" r="2" /></svg>{/snippet}
       <Toolbar label={t('changes')} items={[
-        { id: 'rollback', label: c('rollback'), icon: rollbackIcon, disabled: !ids.length || session.busy, run: () => { rollback=true; } },
         { id: 'refresh', label: t('refresh'), icon: refreshIcon, run: refresh },
-        { id: 'group', label: t('groupDirectories'), icon: groupIcon, pressed: !flat, run: () => { flat = !flat; } },
+        { id: 'rollback', label: c('rollback'), icon: rollbackIcon, disabled: !ids.length || session.busy, run: () => { rollback=true; } },
+        { id: 'shelve', label: t('shelveSilently'), icon: shelfIcon, disabled: true, run: () => {} },
+        { id: 'preview', label: t('showPreview'), icon: previewIcon, pressed: preview, run: togglePreview },
         { id: 'expand', label: t('expandAll'), icon: expandIcon, run: () => { expanded = new Set(['*']); } },
         { id: 'collapse', label: t('collapseAll'), icon: collapseIcon, run: () => { expanded = new Set(); } },
+        { id: 'options', label: t('viewOptions'), icon: optionsIcon, popup: true, expanded: !!optionsAnchor, run: anchor => { optionsAnchor = optionsAnchor ? null : anchor; } },
       ]} />
-      <div class="files"><PagedFileTree selection={session.selection} oncount={count=>{session.count=count;}} onselectedids={selected=>{ids=selected;}} onopen={openDiff} ontoggle={(id,state)=>{if(!session.busy)session.selection=toggleRule(session.selection,id,state);}} onselect={row => { if (row.path) browser.previewFile = { path: row.path, staged: row.staged, unstaged: row.unstaged, hash: '' }; }} changes generation={browser.statusGeneration} revision={browser.statusRevision} {flat} bind:expanded onerror={error => browser.report(error)} /></div>
+      {#if optionsAnchor}<div class="view-options"><Popup label={t('viewOptions')} anchor={optionsAnchor} onclose={() => { optionsAnchor = null; }} items={[
+        { id: 'group', label: t('groupDirectories'), checked: !flat, run: () => { flat = !flat; } },
+      ]} /></div>{/if}
+      <div class="files"><PagedFileTree selection={session.selection} oncount={count=>{session.count=count;}} onselectedids={selected=>{ids=selected;}} onopen={openDiff} ontoggle={(id,state)=>{if(!session.busy)session.selection=toggleRule(session.selection,id,state);}} onselect={selectFile} changes generation={browser.statusGeneration} revision={browser.statusRevision} {flat} bind:expanded onerror={error => browser.report(error)} /></div>
       <div class="form">
         <label><input type="checkbox" checked={session.amend} disabled={session.busy || browser.status?.branch.oid === '(initial)'} onclick={event=>{event.preventDefault();void amend();}} /> {t('amend')}</label>
         <button title="Ctrl+M" disabled={session.busy} onclick={()=>{void showHistory();}}>{c('history')}</button>
@@ -79,7 +104,9 @@
 {#if rollback}<RollbackDialog {browser} {ids} close={()=>{rollback=false;}} />{/if}
 <style>
   .commit-panel { display: flex; flex-direction: column; height: 100%; min-height: 0; }
-  .files { flex: 1; min-height: 0; }
+  .files { flex: 1; min-height: 0; --list-row-height: var(--commit-list-row-height); --space-inline: var(--commit-tree-gap); --tree-indent: var(--commit-tree-indent); }
+  .commit-panel :global(.toolbar) { gap: 0; padding: var(--commit-tree-gap); }
+  .view-options { --popup-height: calc(var(--list-row-height) + var(--popup-padding) * 2 + var(--border-width) * 2); }
   .form { padding: var(--space-inline); display: flex; flex-direction: column; gap: var(--space-inline); border-top: var(--border-width) solid var(--separator); }
   .form > div { display: flex; gap: var(--space-inline); }
   label { color: var(--text-secondary); font-size: var(--font-small-size); }

@@ -14,8 +14,17 @@ export function selectable(row: ListRow): boolean {
 }
 
 /** End is exclusive. Never read rows outside this bounded range for rendering. */
-export function visibleRange(count: number, rowHeight: number, scrollTop: number, height: number, overscan = 3) {
+export function visibleRange(count: number, rowHeight: number, scrollTop: number, height: number, overscan = 3, offsets?: readonly number[]) {
   if (rowHeight <= 0 || count <= 0 || height <= 0) return { start: 0, end: 0 };
+  if (offsets) {
+    const lowerBound = (position: number) => {
+      let low = 0, high = count;
+      while (low < high) { const mid = (low + high) >>> 1; if (offsets[mid] < position) low = mid + 1; else high = mid; }
+      return low;
+    };
+    return { start: Math.max(0, lowerBound(Math.max(0, scrollTop)) - 1 - overscan),
+      end: Math.min(count, lowerBound(Math.max(0, scrollTop) + height) + overscan) };
+  }
   const start = Math.min(count, Math.max(0, Math.floor(scrollTop / rowHeight) - overscan));
   const end = Math.min(count, Math.ceil((Math.max(0, scrollTop) + height) / rowHeight) + overscan);
   return { start, end: Math.max(start, end) };

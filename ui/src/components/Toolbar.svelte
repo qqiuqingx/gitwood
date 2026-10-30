@@ -4,7 +4,7 @@
   import type { Snippet } from 'svelte';
   export interface ToolbarAction {
     id: string; label: string; shortcut?: string; disabled?: boolean;
-    pressed?: boolean; icon: Snippet; run: () => void;
+    pressed?: boolean; popup?: boolean; expanded?: boolean; icon: Snippet; run: (anchor: HTMLButtonElement) => void;
   }
   let { label, items }: { label: string; items: readonly (ToolbarAction | { id: string; separator: true })[] } = $props();
   let focused = $state<string | null>(null);
@@ -27,9 +27,9 @@
     {#if 'separator' in item}<span class="separator" role="separator" aria-orientation="vertical"></span>
     {:else}
       <span class="item" role="presentation" onpointerenter={() => { hovered = item.id; }} onpointerleave={() => { hovered = null; }}>
-        <button type="button" aria-label={item.label} aria-pressed={item.pressed} disabled={item.disabled}
+        <button type="button" aria-label={item.label} aria-pressed={item.pressed} aria-haspopup={item.popup ? 'dialog' : undefined} aria-expanded={item.expanded} disabled={item.disabled}
           aria-describedby={`${id}-${item.id}`} class:pressed={item.pressed}
-          onclick={item.run} onfocus={() => { focused = item.id; }} onblur={() => { focused = null; }}>
+          onclick={event => item.run(event.currentTarget)} onfocus={() => { focused = item.id; }} onblur={() => { focused = null; }}>
           <span aria-hidden="true">{@render item.icon()}</span>
         </button>
         <span id={`${id}-${item.id}`} role="tooltip" class="tooltip" class:visible={focused === item.id || hovered === item.id}>

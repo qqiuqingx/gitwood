@@ -93,8 +93,64 @@ pub async fn open_repository(
     })
 }
 #[tauri::command]
-pub fn recent_repositories(store: State<'_, SettingsStore>) -> Vec<RecentRepository> {
-    store.snapshot().recent_repositories
+pub fn recent_repositories(store: State<'_, SettingsStore>) -> Vec<RecentProject> {
+    let home = std::env::home_dir();
+    store
+        .snapshot()
+        .recent_repositories
+        .into_iter()
+        .map(|record| RecentProject {
+            display_path: display_path(&record.path, home.as_deref()),
+            path: record.path,
+            failed: record.failed,
+        })
+        .collect()
+}
+
+/// IPC presentation only: the settings schema still stores path + failed.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RecentProject {
+    path: std::path::PathBuf,
+    display_path: String,
+    failed: bool,
+}
+
+fn display_path(path: &std::path::Path, home: Option<&std::path::Path>) -> String {
+    if let Some(relative) = home
+        .filter(|home| !home.as_os_str().is_empty())
+        .and_then(|home| path.strip_prefix(home).ok())
+    {
+        if relative.as_os_str().is_empty() {
+            return "~".into();
+        }
+        return std::path::Path::new("~")
+            .join(relative)
+            .to_string_lossy()
+            .into_owned();
+    }
+    path.to_string_lossy().into_owned()
+}
+
+#[cfg(test)]
+mod display_path_tests {
+    use super::display_path;
+    use std::path::Path;
+    #[test]
+    fn abbreviates_only_complete_home_path_components() {
+        let home = Path::new("/users/me");
+        assert_eq!(display_path(home, Some(home)), "~");
+        assert_eq!(
+            display_path(&home.join("repo"), Some(home)),
+            Path::new("~").join("repo").to_string_lossy()
+        );
+        assert_eq!(
+            display_path(Path::new("/users/member/repo"), Some(home)),
+            "/users/member/repo"
+        );
+        assert_eq!(display_path(home, None), "/users/me");
+        assert_eq!(display_path(home, Some(Path::new(""))), "/users/me");
+    }
 }
 #[tauri::command]
 pub fn close_repository(sessions: State<'_, Sessions>) -> u64 {
@@ -770,4 +826,29 @@ pub async fn commit_and_push(
         (generation, gitwood_core::repo::watch::Refresh::all()),
     );
     result.map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn undo_commit(
+    sessions: State<'_, Sessions>,
+    generation: u64,
+    expected: String,
+) -> Result<String, Error> {
+    let l = sessions.lease(generation)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        tauri::async_runtime::block_on(l.undo_commit(&expected))
+    })
+    .await
+    .map_err(|e| Error::from(gitwood_core::repo::invalid(&e.to_string())))?
+    .map_err(Into::into)
+}
+#[tauri::command]
+pub async fn undo_in_progress(
+    sessions: State<'_, Sessions>,
+    generation: u64,
+) -> Result<bool, Error> {
+    let l = sessions.lease(generation)?;
+    let result = l.undo_in_progress().await;
+    sessions.check(&l)?;
+    Ok(result?)
 }

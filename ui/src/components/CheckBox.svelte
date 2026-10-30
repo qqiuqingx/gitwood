@@ -5,4 +5,4 @@
 </script>
 <input type="checkbox" tabindex="-1" aria-label={label} aria-checked={state === 'some' ? 'mixed' : state === 'all'} checked={state === 'all'} use:mixed={state === 'some'} {disabled}
   onclick={event => { event.stopPropagation(); onchange(); (event.currentTarget.closest('[role=tree]') as HTMLElement | null)?.focus(); }} ondblclick={event => event.stopPropagation()} />
-<style>input { flex:none; accent-color:var(--accent); }</style>
+<style>input { margin:0; width:var(--checkbox-size); height:var(--checkbox-size); flex:none; accent-color:var(--accent); }</style>

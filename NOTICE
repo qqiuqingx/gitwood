@@ -119,3 +119,19 @@ platform/vcs-log/graph/src/com/intellij/vcs/log/graph/
 Each source file declares Apache-2.0; copyright JetBrains s.r.o. and contributors.
 Gitwood's independent ancestor traversal marks skipped paths as dotted and renders
 these as dashed lines, following the upstream DOTTED / DASHED naming and behavior.
+
+Project avatar algorithm and palette adapted from intellij-community
+------------------------------------------------------------------
+Upstream/revision: same intellij-community revision recorded above.
+Sources (each file declares Apache-2.0 in its header):
+  platform/util/ui/src/com/intellij/util/ui/AvatarUtils.kt
+    Copyright 2000-2025 JetBrains s.r.o. and contributors.
+  platform/platform-impl/src/com/intellij/ide/RecentProjectIconHelper.kt
+    Copyright 2000-2023 JetBrains s.r.o. and contributors.
+Local: ui/src/features/projects/avatar.ts, ProjectAvatar.svelte;
+  crates/gitwood-core/src/theme/builtin/{light,dark,walnut}.json.
+Modifications: TypeScript initials and Java string hash adaptation; Math.abs
+avoids signed Int.MIN_VALUE overflow; path hash selects one of nine gradients
+without persisted indices. CSS renders the avatar with arcRatio 0.4 (radius 20%)
+and theme variables; Walnut uses the upstream Dark palette. No upstream artwork
+or product marks are included.

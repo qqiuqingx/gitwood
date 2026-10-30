@@ -13,7 +13,7 @@ export interface HistoryRow { index: number; column: number; color: number; segm
 export interface Filter { text: string | null; branch: string | null; author: string | null; since: string | null; until: string | null; path: RepoPath | null }
 export interface FilterInput { text: string; branch: string; author: string; since: string; until: string; path: string }
 export interface Opened { generation: number; repository: { root: string; linked: boolean } }
-export interface Recent { path: string; failed: boolean }
+export interface Recent { path: string; displayPath: string; failed: boolean }
 export interface Refresh { status: boolean; refs: boolean; history: boolean }
 export interface RepositoryError { generation?: number; key?: string; path?: string; detail?: string }
 

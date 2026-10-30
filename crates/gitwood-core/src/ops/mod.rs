@@ -17,3 +17,6 @@ pub use rollback::{rollback, rollback_patch};
 pub mod branch;
 
 pub mod remote;
+
+mod reset;
+pub use reset::{undo_commit, undo_in_progress};

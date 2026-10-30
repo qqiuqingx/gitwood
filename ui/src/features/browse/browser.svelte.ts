@@ -37,6 +37,17 @@ export class RepositoryBrowser {
   private disposed = false;
   private operations: Promise<unknown> = Promise.resolve();
 
+  async undoCommit(hash: string) {
+    if (this.commit.busy || !this.project) return;
+    const project = this.project, session = this.commit;
+    session.busy = true;
+    try {
+      const message = await invoke<string>('undo_commit', { generation: this.generation, expected: hash });
+      if (this.project === project && this.commit === session) session.restoreUndoMessage(message);
+    } catch (error) { if (this.project === project) this.report(error); }
+    finally { session.busy = false; }
+    if (this.project === project) await this.refresh(everything());
+  }
   async recentProjects() { this.recent = await invoke<Recent[]>('recent_repositories'); }
   async open(path: string) {
     if (this.commit.busy) return;
@@ -158,6 +169,23 @@ export class RepositoryBrowser {
         this.rows = rows;
       }
     } catch (error) { if (this.current(project, generation) && this.pages.accepts(ticket)) this.report(error); }
+  }
+  async historyPosition(hash: string): Promise<number | null> {
+    if (!this.project) return null;
+    const project = this.project, generation = this.generation;
+    const position = await invoke<number | null>('history_position', { generation, hash });
+    return this.current(project, generation) ? position : null;
+  }
+  async goToCommit(hash: string) {
+    const project = this.project, generation = this.generation;
+    if (!project) return;
+    const ticket = this.selection.next();
+    try {
+      const position = await this.historyPosition(hash);
+      if (position === null || !this.selection.accepts(ticket)) return;
+      this.scrollTop = position * this.rowHeight;
+      await this.selectIndex(position);
+    } catch (error) { if (this.current(project, generation) && this.selection.accepts(ticket)) this.report(error); }
   }
   async selectIndex(index: number) {
     if (index < 0 || index >= this.total) return;

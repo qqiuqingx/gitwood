@@ -18,6 +18,7 @@
     overlay?: Snippet<[{ start: number; end: number; scrollTop: number; scrollLeft: number; width: number; rowHeight: number; height: number }]>;
     onviewportchange?: (viewport: { start: number; end: number; scrollTop: number; scrollLeft: number; width: number; rowHeight: number; height: number }) => void;
     rowCount: number;
+    rowScales?: readonly number[];
     getRow: (index: number) => ListRow;
     label: string;
     multi?: boolean;
@@ -38,7 +39,7 @@
     oncontextmenu?: (event: MouseEvent, row: ListRow, index: number) => void;
   }
   let {
-    rowCount, getRow, label, multi = false, selectedIds = $bindable(new Set<string>() as ReadonlySet<string>),
+    rowCount, rowScales, getRow, label, multi = false, selectedIds = $bindable(new Set<string>() as ReadonlySet<string>),
     activeIndex = $bindable(-1), role = 'listbox', search = true, searchLabel = controlText('search'), noMatchLabel = controlText('noMatch'),
     scrollTop = $bindable(0), minRowWidth = 0, overlay, onviewportchange,
     searchRows, activateOnClick = false, row, onselectionchange, onactivate, onrangechange, onquerychange, onnavigate, oncontextmenu,
@@ -58,7 +59,14 @@
   let noMatch = $state(false);
   let searchRequest = 0;
   const active = $derived(activeIndex >= 0 && activeIndex < rowCount ? activeIndex : -1);
-  const range = $derived(visibleRange(rowCount, rowHeight, scrollTop, height));
+  // Popup descriptions use two-line rows; ordinary long lists keep constant-time geometry.
+  const offsets = $derived.by(() => {
+    if (!rowScales) return undefined;
+    const result = [0];
+    for (let index = 0; index < rowCount; index++) result.push(result[index] + rowHeight * (rowScales[index] ?? 1));
+    return result;
+  });
+  const range = $derived(visibleRange(rowCount, rowHeight, scrollTop, height, 3, offsets));
   const rows = $derived.by(() => {
     const result: { index: number; item: ListRow }[] = [];
     for (let index = range.start; index < range.end; index++) result.push({ index, item: getRow(index) });
@@ -86,9 +94,10 @@
   });
   function reveal(index: number) {
     if (!viewport || !rowHeight || index < 0) return;
-    const top = index * rowHeight;
+    const top = offsets?.[index] ?? index * rowHeight;
+    const bottom = offsets?.[index + 1] ?? top + rowHeight;
     if (top < viewport.scrollTop) viewport.scrollTop = top;
-    else if (top + rowHeight > viewport.scrollTop + height) viewport.scrollTop = top + rowHeight - height;
+    else if (bottom > viewport.scrollTop + height) viewport.scrollTop = bottom - height;
     scrollTop = viewport.scrollTop;
   }
 
@@ -118,6 +127,12 @@
   }
   function keyboard(event: KeyboardEvent) {
     if (event.defaultPrevented || event.isComposing || event.target !== viewport) return;
+    if (oncontextmenu && (event.key === 'ContextMenu' || (event.key === 'F10' && event.shiftKey)) && active >= 0 && selectable(getRow(active))) {
+      event.preventDefault(); event.stopPropagation();
+      const bounds = document.getElementById(`${id}-${active}`)?.getBoundingClientRect() ?? viewport.getBoundingClientRect();
+      oncontextmenu(new MouseEvent('contextmenu', { clientX: bounds.x, clientY: bounds.y + bounds.height, bubbles: true, cancelable: true }), getRow(active), active);
+      return;
+    }
     if (query) {
       if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); closeSearch(); return; }
       if (event.key === 'Backspace' && !event.metaKey && !event.ctrlKey && !event.altKey) {
@@ -157,7 +172,7 @@
     onkeydown={keyboard} onscroll={() => { scrollTop = viewport.scrollTop; scrollLeft = viewport.scrollLeft; }}
     onfocus={() => { focused = true; }} onblur={(event) => { if (!host.contains(event.relatedTarget as Node | null)) { focused = false; closeSearch(); } }}
     oncompositionend={(event) => { if (search && event.data) updateSearch(query + event.data); }}>
-    <div class="canvas" role="presentation" style:height={`${rowCount * rowHeight}px`} style:min-width={`${minRowWidth}px`}>
+    <div class="canvas" role="presentation" style:height={`${offsets?.[rowCount] ?? rowCount * rowHeight}px`} style:min-width={`${minRowWidth}px`}>
       {#each rows as { index, item } (item.id)}
         <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_noninteractive_element_interactions (Keyboard navigation is owned by the active-descendant list/tree.) -->
         <div id={`${id}-${index}`} class="row" class:selected={selectedIds.has(item.id)} class:disabled={item.disabled}
@@ -166,7 +181,7 @@
           aria-selected={selectable(item) ? selectedIds.has(item.id) : undefined} aria-disabled={item.disabled || undefined}
           aria-expanded={role === 'tree' ? item.expanded : undefined} aria-level={role === 'tree' ? item.level : undefined}
           aria-posinset={item.posInSet ?? index + 1} aria-setsize={item.setSize ?? rowCount}
-          style:top={`${index * rowHeight}px`} style:height={`${rowHeight}px`}
+          style:top={`${offsets?.[index] ?? index * rowHeight}px`} style:height={`${offsets ? offsets[index + 1] - offsets[index] : rowHeight}px`}
           onclick={(event) => pointer(event, index)} ondblclick={() => activate('doubleclick', index)}
           oncontextmenu={(event) => { if (selectable(item)) { focus(); if (!selectedIds.has(item.id)) selectIndex(index); oncontextmenu?.(event, item, index); } }}>
           {#if row}{@render row(item, index, query)}{:else if item.kind !== 'separator'}<Highlight text={item.label} {query} />{/if}

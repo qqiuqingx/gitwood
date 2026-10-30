@@ -10,7 +10,7 @@ const messages = {
     text: 'Text or hash', branch: 'Branch', user: 'User', date: 'Date', paths: 'Paths', since: 'After', until: 'Before', apply: 'Apply', clear: 'Clear',
     noCommits: 'No commits found', noChanges: 'No changes', selectCommit: 'Select a commit to view details', diffPlaceholder: 'Select a file to view differences',
     subject: 'Subject', author: 'Author', today: 'Today', yesterday: 'Yesterday', moments: 'Moments ago', minute: 'A minute ago', minutes: '{count} minutes ago', hour: '1 hour ago', parents: 'Parents', hash: 'Hash', files: 'Changed Files',
-    groupDirectories: 'Group by Directory', expandAll: 'Expand All', collapseAll: 'Collapse All', shelf: 'Shelf', readOnly: 'Read-only', failed: 'Unavailable',
+    fileCount: '{count} files', oneFile: '1 file', viewOptions: 'View Options', showPreview: 'Show Diff Preview', shelveSilently: 'Shelve Silently', groupDirectories: 'Group by Directory', expandAll: 'Expand All', collapseAll: 'Collapse All', shelf: 'Shelf', readOnly: 'Read-only', failed: 'Unavailable',
     commitMessage: 'Commit message', amend: 'Amend', commit: 'Commit', commitPush: 'Commit and Push…', log: 'Log', close: 'Close',
   },
   'zh-CN': { andOthers: '和另外',
@@ -23,7 +23,7 @@ const messages = {
     text: '说明或哈希', branch: '分支', user: '用户', date: '日期', paths: '路径', since: '晚于', until: '早于', apply: '应用', clear: '清除',
     noCommits: '未找到提交', noChanges: '没有变更', selectCommit: '选择提交以查看详情', diffPlaceholder: '选择文件以查看差异',
     subject: '说明', author: '作者', today: '今天', yesterday: '昨天', moments: '刚刚', minute: '1 分钟前', minutes: '{count} 分钟前', hour: '1 小时前', parents: '父提交', hash: '哈希', files: '变更文件',
-    groupDirectories: '按目录分组', expandAll: '全部展开', collapseAll: '全部折叠', shelf: '搁置', readOnly: '只读', failed: '不可用',
+    fileCount: '{count} 个文件', oneFile: '1 个文件', viewOptions: '视图选项', showPreview: '显示差异预览', shelveSilently: '静默搁置', groupDirectories: '按目录分组', expandAll: '全部展开', collapseAll: '全部折叠', shelf: '搁置', readOnly: '只读', failed: '不可用',
     commitMessage: '提交说明', amend: '修订', commit: '提交', commitPush: '提交并推送…', log: '日志', close: '关闭',
   },
 } as const;

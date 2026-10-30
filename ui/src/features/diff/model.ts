@@ -35,12 +35,13 @@ export function collapsedFolds(folds: readonly FoldRange[], expanded: ReadonlySe
 export function expandFold(expanded: ReadonlySet<number>, id: number): ReadonlySet<number> {
   return new Set([...expanded, id]);
 }
-export interface Connector { path: string; top: number; bottom: number; leftY: number; rightY: number }
+export interface Connector { path: string; borders: string; top: number; bottom: number; leftY: number; rightY: number }
 /** Curved band endpoints are measured CodeMirror line boundaries (folds included). */
 export function connectorGeometry(left: readonly [number, number], right: readonly [number, number], width: number): Connector {
   const [a, b] = left, [c, d] = right;
   const mid = width / 2;
   return { path: `M0,${a} C${mid},${a} ${mid},${c} ${width},${c} L${width},${d} C${mid},${d} ${mid},${b} 0,${b} Z`,
+    borders: `M0,${a} C${mid},${a} ${mid},${c} ${width},${c} M0,${b} C${mid},${b} ${mid},${d} ${width},${d}`,
     top: Math.min(a, c), bottom: Math.max(b, d), leftY: (a + b) / 2, rightY: (c + d) / 2 };
 }
 

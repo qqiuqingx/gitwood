@@ -3,14 +3,13 @@
   import { onMount } from 'svelte';
   import { Compartment, EditorState } from '@codemirror/state';
   import { EditorView } from '@codemirror/view';
-  import { commitText as c } from '../../i18n/commit';
   import { diffText as t } from '../../i18n/diff';
   import { createActionRegistry } from '../../keymap/registry';
   import { keymapFor } from '../../keymap/keymaps';
   import { detectPlatform } from '../../keymap/shortcuts';
   import { constrainSplit } from '../../components/splitter';
   import { connectorGeometry, expandFold, mapLine, nextDifference, visibleBlockRange, type Connector } from './model';
-  import { diffDecorations, editorExtensions, linePosition, inclusionGutter } from './editor';
+  import { diffDecorations, editorExtensions, linePosition, lineBoundary, inclusionGutter, rollbackGutter } from './editor';
   import type { Content, DiffResult, Side } from './types';
 
   let { left, right, result, fileKey = '', included = [], onblock, onrevert, disabled = false }: { included?: readonly number[]; onblock?: (index: number) => void; onrevert?: (index: number) => void; disabled?: boolean; fileKey?: string; left: string | Content; right: string | Content; result: DiffResult } = $props();
@@ -28,7 +27,7 @@
   let middleWidth = $state(1); let middleHeight = $state(1);
   let previousFileKey = '';
   let savedScroll = { left: 0, right: 0 };
-  let updateInclusion = $state<((included: readonly number[], disabled: boolean) => void) | undefined>();
+  let updateMarkers = $state<((included: readonly number[], disabled: boolean, revert?: (index: number) => void, toggle?: (index: number) => void) => void) | undefined>();
   let navigate: ((direction: 1 | -1) => void) | undefined;
   let resizeMeasure: (() => void) | undefined;
   let drag: { id: number; start: number; width: number; first: number } | undefined;
@@ -44,7 +43,7 @@
     const contents = { left: leftContent, right: rightContent };
     let alive = true; let expanded: ReadonlySet<number> = new Set(); let active: Side = contents.left.kind === 'text' ? 'left' : 'right';
     const views: Partial<Record<Side, EditorView>> = {};
-    const inclusion = new Compartment();
+    const markers = { left: new Compartment(), right: new Compartment() };
     const compartments = { left: new Compartment(), right: new Compartment() };
     const expected = new Map<Side, number>();
     let source: Side | undefined;
@@ -57,10 +56,6 @@
         if (view) view.dispatch({ effects: compartments[side].reconfigure(EditorView.decorations.of(diffDecorations(view.state, side, data, expanded, expand))) });
       }
       measure();
-    }
-    function boundary(view: EditorView, line: number) {
-      if (line >= view.state.doc.lines) return view.contentHeight;
-      return view.lineBlockAt(linePosition(view.state, line)).top;
     }
     function measure() {
       const primary = views.left ?? views.right;
@@ -81,7 +76,7 @@
               const mapped = mapLine(line, from, data.alignment);
               const offset = Math.max(0, top - block.top);
               // Keep pixel position within a visible line/fold widget; no document-wide ratio.
-              target = { side, top: boundary(destination, mapped) + Math.min(offset, destination.defaultLineHeight) + destination.documentPadding.top };
+              target = { side, top: lineBoundary(destination, mapped) + Math.min(offset, destination.defaultLineHeight) + destination.documentPadding.top };
             }
           }
           const l = views.left, r = views.right;
@@ -89,7 +84,7 @@
           const candidates = l && r ? visibleBlockRange(data.blocks, visible(l), visible(r)) : { start: 0, end: 0 };
           const nextBands = l && r ? data.blocks.slice(candidates.start, candidates.end).flatMap((block, offset) => {
             const index = candidates.start + offset;
-            const y = (view: EditorView, line: number) => boundary(view, line) + view.documentPadding.top - view.scrollDOM.scrollTop + view.scrollDOM.getBoundingClientRect().top - rect.top;
+            const y = (view: EditorView, line: number) => lineBoundary(view, line) + view.documentPadding.top - view.scrollDOM.scrollTop + view.scrollDOM.getBoundingClientRect().top - rect.top;
             const geometry = connectorGeometry([y(l, block.left.start), y(l, block.left.end)], [y(r, block.right.start), y(r, block.right.end)], rect.width);
             return geometry.bottom >= 0 && geometry.top <= rect.height ? [{ index, kind: block.kind, geometry }] : [];
           }) : [];
@@ -112,12 +107,12 @@
       const value = contents[side];
       if (value.kind !== 'text') continue;
       // CM normalizes CRLF/LF in its document; Rust line/UTF-16 ranges exclude EOL.
-      const state = EditorState.create({ doc: value.text.replace(/\r\n/g, '\n'), extensions: [editorExtensions,
+      const state = EditorState.create({ doc: value.text.replace(/\r\n/g, '\n'), extensions: [editorExtensions(side),
         EditorState.lineSeparator.of('\n'),
         EditorView.cspNonce.of(nonce.startsWith('__TAURI_') ? '' : nonce),
         EditorView.contentAttributes.of({ 'aria-label': t(side) }),
         compartments[side].of([]),
-        ...(side === 'left' ? [inclusion.of([])] : []),
+        markers[side].of([]),
         EditorView.updateListener.of(update => {
           if (update.selectionSet) { active = side; selected = -1; }
           if (update.geometryChanged || update.viewportChanged) measure();
@@ -134,7 +129,10 @@
       }, { passive: true });
       view.dom.addEventListener('focusin', () => { active = side; });
     }
-    updateInclusion = (chosen, busy) => { if(views.left) views.left.dispatch({effects:inclusion.reconfigure(onblock ? inclusionGutter(data,chosen,busy,index=>onblock?.(index)) : [])}); };
+    updateMarkers = (chosen, busy, revert, toggle) => {
+      views.left?.dispatch({ effects: markers.left.reconfigure(revert ? rollbackGutter(data, busy, revert) : []) });
+      views.right?.dispatch({ effects: markers.right.reconfigure(toggle ? inclusionGutter(data, chosen, busy, toggle) : []) });
+    };
     navigate = direction => {
       const origin = views[active];
       if (!origin) return;
@@ -156,7 +154,7 @@
       origin.requestMeasure({
         read: () => alive ? (['left', 'right'] as const).flatMap(side => {
           const view = views[side];
-          return view ? [{ side, top: boundary(view, block[side].start) + view.documentPadding.top - view.scrollDOM.clientHeight / 2 }] : [];
+          return view ? [{ side, top: lineBoundary(view, block[side].start) + view.documentPadding.top - view.scrollDOM.clientHeight / 2 }] : [];
         }) : [],
         write: targets => {
           if (!alive) return;
@@ -188,10 +186,10 @@
       alive = false; observer.disconnect(); host.removeEventListener('keydown', keydown);
       for (const side of ['left', 'right'] as const) { const view = views[side]; if (view) { savedScroll[side] = view.scrollDOM.scrollTop; view.destroy(); } }
       previousFileKey = currentFileKey;
-      navigate = undefined; resizeMeasure = undefined; updateInclusion=undefined;
+      navigate = undefined; resizeMeasure = undefined; updateMarkers=undefined;
     };
   });
-  $effect(()=> { updateInclusion?.(included,disabled); });
+  $effect(()=> { updateMarkers?.(included,disabled,onrevert,onblock); });
   function resize(event: PointerEvent) {
     if (!drag || drag.id !== event.pointerId) return;
     ratio = constrainSplit(drag.first + event.clientX - drag.start, drag.width, 80, 80).first / Math.max(1, drag.width);
@@ -220,35 +218,36 @@
     <button type="button" title="Shift+F7" disabled={!result.blocks.length || selected === 0} onclick={() => navigate?.(-1)}>{t('previous')}</button>
     <button type="button" title="F7" disabled={!result.blocks.length || selected === result.blocks.length - 1} onclick={() => navigate?.(1)}>{t('next')}</button>
   </div>
-  <div class="panes" style:grid-template-columns={`${ratio}fr calc(var(--toolbar-button-size) * 2) ${1-ratio}fr`}>
-    {#snippet pane(value: Content, side: Side)}
-      <h3>{t(side)}</h3>
+  <div class="panes" style:grid-template-columns={`${ratio}fr var(--diff-divider-width) ${1-ratio}fr`}>
+    {#snippet pane(value: Content)}
       {#if value.kind !== 'text'}
         <div class="special">{t(value.kind)} · {value.byteLen} {t('bytes')}{#if value.kind === 'tooLarge'} / {value.limit} {t('bytes')}{/if}</div>
       {:else if value.empty}<div class="empty-state">{t('empty')}</div>{/if}
     {/snippet}
-    <section class="pane" aria-label={t('left')}>
-      {@render pane(leftContent, 'left')}
+    <h3 class="left">{t('left')}</h3>
+    <section class="pane left" aria-label={t('left')}>
+      {@render pane(leftContent)}
       <div class="editor" bind:this={leftHost} hidden={leftContent.kind !== 'text'}></div>
-      <footer>{#if leftContent.kind === 'text' && leftContent.missingFinalNewline}{t('noNewline')}{/if}</footer>
     </section>
+    <footer class="left">{#if leftContent.kind === 'text' && leftContent.missingFinalNewline}{t('noNewline')}{/if}</footer>
     <!-- svelte-ignore a11y_no_noninteractive_tabindex, a11y_no_noninteractive_element_interactions (Keyboard accessible splitter, same pattern as the shared Splitter.) -->
     <div class="middle" bind:this={middle} role="separator" tabindex="0" aria-label={t('resize')} aria-orientation="vertical" aria-valuemin="10" aria-valuemax="90" aria-valuenow={Math.round(ratio * 100)}
       onpointerdown={startResize} onpointermove={resize} onpointerup={stopResize} onpointercancel={stopResize} onlostpointercapture={stopResize} onkeydown={resizeKey}>
       <svg width="100%" height="100%" viewBox={`0 0 ${middleWidth} ${middleHeight}`} preserveAspectRatio="none" aria-hidden="true">
-        {#each bands as band (band.index)}<path class={`band ${band.kind}`} class:current={selected === band.index} d={band.geometry.path} />{/each}
+        {#each bands as band (band.index)}
+          <g class={`band ${band.kind}`}>
+            <path class="fill" d={band.geometry.path} />
+            <path class="borders" d={band.geometry.borders} />
+          </g>
+        {/each}
       </svg>
-      {#each bands as band (band.index)}
-        <div class="arrows" style:top={`${Math.max(0, Math.min(middleHeight - 24, (band.geometry.leftY + band.geometry.rightY) / 2))}px`}>
-          {#if onrevert}<button type="button" disabled={disabled} aria-label={c('revert')} title={c('revert')} onclick={()=>onrevert?.(band.index)}>↶</button>{/if}
-        </div>
-      {/each}
     </div>
-    <section class="pane" aria-label={t('right')}>
-      {@render pane(rightContent, 'right')}
+    <h3 class="right">{t('right')}</h3>
+    <section class="pane right" aria-label={t('right')}>
+      {@render pane(rightContent)}
       <div class="editor" bind:this={rightHost} hidden={rightContent.kind !== 'text'}></div>
-      <footer>{#if rightContent.kind === 'text' && rightContent.missingFinalNewline}{t('noNewline')}{/if}</footer>
     </section>
+    <footer class="right">{#if rightContent.kind === 'text' && rightContent.missingFinalNewline}{t('noNewline')}{/if}</footer>
   </div>
 </div>
 <style>
@@ -257,24 +256,31 @@
   button { font: inherit; color: var(--text-primary); background: var(--background-secondary); border: var(--border-width) solid var(--separator); }
   button:disabled { color: var(--text-disabled); }
   button:focus-visible, .middle:focus-visible { outline: var(--focus-width) solid var(--focus-border); outline-offset: calc(-1 * var(--focus-width)); }
-  .panes { display: grid; flex: 1; min-height: 0; min-width: 0; }
-  .pane { position: relative; display: flex; flex-direction: column; min-width: 0; min-height: 0; overflow: hidden; }
-  h3 { font: inherit; margin: 0; padding: var(--space-panel-y) var(--space-inline); background: var(--background-secondary); }
+  .panes { display: grid; grid-template-rows: auto minmax(0, 1fr) auto; flex: 1; min-height: 0; min-width: 0; }
+  .pane { position: relative; display: flex; flex-direction: column; grid-row: 2; min-width: 0; min-height: 0; overflow: hidden; }
+  .left { grid-column: 1; }
+  .right { grid-column: 3; }
+  h3 { grid-row: 1; min-width: 0; font: inherit; margin: 0; padding: var(--space-panel-y) var(--space-inline); background: var(--background-secondary); }
   .editor { flex: 1; min-height: 0; overflow: hidden; }
   .special { flex: 1; padding: var(--space-panel-x); color: var(--text-secondary); }
   .empty-state { position: absolute; top: 50%; left: var(--space-panel-x); color: var(--text-secondary); pointer-events: none; z-index: 1; }
-  footer { min-height: calc(var(--font-small-size) * var(--line-height-ui)); font-size: var(--font-small-size); color: var(--text-secondary); }
-  .middle { position: relative; overflow: hidden; background: var(--diff-gutter-bg); cursor: col-resize; touch-action: none; }
+  footer { grid-row: 3; min-height: calc(var(--font-small-size) * var(--line-height-ui)); font-size: var(--font-small-size); color: var(--text-secondary); }
+  .middle { grid-column: 2; grid-row: 2; min-height: 0; position: relative; overflow: hidden; background: var(--diff-gutter-bg); cursor: col-resize; touch-action: none; }
   svg { position: absolute; inset: 0; pointer-events: none; }
   .band.insert { fill: var(--diff-added-bg); stroke: var(--diff-gutter-added); }
   .band.delete { fill: var(--diff-removed-bg); stroke: var(--diff-gutter-removed); }
   .band.modify { fill: var(--diff-modified-bg); stroke: var(--diff-gutter-modified); }
-  .band.current { stroke: var(--focus-border); stroke-width: 2; }
-  .arrows { position: absolute; display: flex; width: 100%; justify-content: space-between; pointer-events: none; }
-  .arrows button { padding: 0; font-size: var(--font-small-size); pointer-events: auto; }
+  .fill { stroke: none; }
+  .borders { fill: none; stroke-width: var(--border-width); }
+  :global(.diff-view .cm-gutters-before:empty) { display: none; }
+  :global(.diff-view .commit-inclusion), :global(.diff-view .diff-rollback) { min-width: var(--diff-marker-width); }
+  :global(.diff-view .diff-rollback button) { padding: 0; width: var(--diff-marker-width); border: 0; background: none; color: var(--text-secondary); font: inherit; cursor: pointer; }
+  :global(.diff-view .diff-rollback button:disabled) { color: var(--text-disabled); cursor: default; }
+  :global(.diff-view .diff-rollback button:focus-visible), :global(.diff-view .commit-inclusion input:focus-visible) { outline: var(--focus-width) solid var(--focus-border); }
+  :global(.diff-view .commit-inclusion .cm-gutterElement), :global(.diff-view .diff-rollback .cm-gutterElement) { padding: 0; min-width: var(--diff-marker-width); text-align: center; }
   :global(.diff-view .cm-editor) { height: 100%; color: var(--text-primary); background: var(--background-primary); }
   :global(.diff-view .cm-scroller) { overflow: auto; font-family: var(--font-editor-family); font-size: var(--font-editor-size); line-height: var(--font-editor-line-height); }
-  :global(.diff-view .commit-inclusion input) { accent-color:var(--accent); }
+  :global(.diff-view .commit-inclusion input) { margin: 0; vertical-align: middle; width: var(--checkbox-size); height: var(--checkbox-size); accent-color:var(--accent); }
   :global(.diff-view .cm-gutters) { color: var(--diff-gutter-fg); background: var(--diff-gutter-bg); border-color: var(--separator); }
   :global(.diff-view .cm-focused) { outline: var(--focus-width) solid var(--focus-border); }
   :global(.diff-view .cm-selectionBackground), :global(.diff-view .cm-content ::selection) { background: var(--selection-bg); }

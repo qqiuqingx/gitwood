@@ -37,6 +37,8 @@
     "allow-last-commit-message",
     "allow-commit-message-history",
     "allow-rollback",
+    "allow-undo-commit",
+    "allow-undo-in-progress",
     "allow-rollback-hunk",
     "allow-rollback-files",
     "allow-create-branch",

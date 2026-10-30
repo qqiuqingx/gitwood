@@ -52,7 +52,19 @@ it('connects measured endpoints including insertion/deletion anchors and offscre
   const geometry = connectorGeometry([20, 20], [30, 70], 40);
   expect(geometry.path).toBe('M0,20 C20,20 20,30 40,30 L40,70 C20,70 20,20 0,20 Z');
   expect(geometry).toMatchObject({ top: 20, bottom: 70, leftY: 20, rightY: 50 });
+  expect(geometry.borders).toBe('M0,20 C20,20 20,30 40,30 M0,20 C20,20 20,70 40,70');
+  expect(geometry.borders).not.toMatch(/[LZ]/);
   expect(connectorGeometry([-100, -20], [10, 10], 40)).toMatchObject({ top: -100, bottom: 10 });
+});
+it('keeps both curve edges at content-local endpoints across divider widths and scrolling', () => {
+  for (const width of [16, 30, 48]) {
+    const band = connectorGeometry([-12, 8], [3, 43], width);
+    expect(band.path).toContain(`L${width},43`);
+    expect(band.borders).toBe(`M0,-12 C${width / 2},-12 ${width / 2},3 ${width},3 M0,8 C${width / 2},8 ${width / 2},43 ${width},43`);
+    expect(band.top).toBe(-12); expect(band.bottom).toBe(43);
+  }
+  const deleted = connectorGeometry([30, 60], [50, 50], 30);
+  expect(deleted.borders).toBe('M0,30 C15,30 15,50 30,50 M0,60 C15,60 15,50 30,50');
 });
 it('builds real CodeMirror line/inline/fold decorations from Rust-compatible ranges', () => {
   const state = EditorState.create({ doc: '🙂 old\r\nunchanged\r\ntail\n' });

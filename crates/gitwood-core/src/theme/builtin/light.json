@@ -133,6 +133,26 @@
     "tooltip.offset": "8px",
     "tooltip.text": "#FFFFFF",
     "tree.disclosure.size": "12px",
-    "tree.indent": "12px"
+    "tree.indent": "12px",
+    "project.avatar.0.start": "#DB3D3C",
+    "project.avatar.0.end": "#FF8E42",
+    "project.avatar.1.start": "#F57236",
+    "project.avatar.1.end": "#FCBA3F",
+    "project.avatar.2.start": "#2BC8BB",
+    "project.avatar.2.end": "#36EBAE",
+    "project.avatar.3.start": "#359AF2",
+    "project.avatar.3.end": "#57DBFF",
+    "project.avatar.4.start": "#8379FB",
+    "project.avatar.4.end": "#85A8FF",
+    "project.avatar.5.start": "#7E54B5",
+    "project.avatar.5.end": "#9486FF",
+    "project.avatar.6.start": "#D63CC8",
+    "project.avatar.6.end": "#F582B9",
+    "project.avatar.7.start": "#954294",
+    "project.avatar.7.end": "#C87DFF",
+    "project.avatar.8.start": "#E75371",
+    "project.avatar.8.end": "#FF78B5",
+    "project.avatar.text": "#FFFFFF",
+    "project.avatar.size": "20px"
   }
 }

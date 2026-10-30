@@ -1,5 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { applyTheme, effectiveTheme } from '../src/theme';
+import { readFileSync } from 'node:fs';
+const layoutDefaults = readFileSync(new URL('../src/theme/light.css', import.meta.url), 'utf8');
 
 afterEach(() => vi.unstubAllGlobals());
 describe('theme CSSOM injection', () => {
@@ -29,13 +31,16 @@ describe('theme CSSOM injection', () => {
 });
 
 // Vite expands these globs on every platform; no absolute machine paths.
-const components = import.meta.glob(['../src/components/*.svelte', '../src/features/diff/*.svelte'], { query: '?raw', import: 'default', eager: true }) as Record<string, string>;
+const components = import.meta.glob(['../src/components/*.svelte', '../src/features/diff/*.svelte', '../src/features/browse/*.svelte'], { query: '?raw', import: 'default', eager: true }) as Record<string, string>;
+// UI geometry defaults are shared by all themes; palette values still belong to each theme.
+const layoutKeys = [...layoutDefaults.matchAll(/(--[\w-]+):/g)].map(match => match[1]).filter(key => /--(diff-divider|diff-marker|checkbox|file-icon|commit-)/.test(key));
 const themes = import.meta.glob('../../crates/gitwood-core/src/theme/builtin/*.json', { eager: true, import: 'default' }) as Record<string, { colors: Record<string, unknown> }>;
 it('defines every component CSS variable in every bundled theme', () => {
   for (const theme of Object.values(themes)) {
     const keys = new Set(Object.keys(theme.colors).map(key => '--' + key.replaceAll('.', '-').replace(/[A-Z]/g, c => '-' + c.toLowerCase())));
+    for (const key of layoutKeys) keys.add(key);
     for (const [file, source] of Object.entries(components)) {
-      for (const match of source.matchAll(/var\((--[\w-]+)/g)) expect(keys.has(match[1]), `${file}: ${match[1]}`).toBe(true);
+      for (const match of source.matchAll(/var\((--[\w-]+)(?=[,)])/g)) expect(keys.has(match[1]), `${file}: ${match[1]}`).toBe(true);
     }
   }
 });

@@ -673,3 +673,13 @@ impl Lease {
         Ok(CommitPushResult { commit, push })
     }
 }
+
+impl Lease {
+    pub async fn undo_commit(&self, expected: &str) -> Result<String, CommitError> {
+        let guard = self.writes.start(&self.options)?;
+        ops::undo_commit(&self.runner, &guard.options, expected).await
+    }
+    pub async fn undo_in_progress(&self) -> Result<bool, CommitError> {
+        ops::undo_in_progress(&self.runner, &self.options).await
+    }
+}

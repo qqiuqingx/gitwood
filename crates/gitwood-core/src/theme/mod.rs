@@ -268,6 +268,7 @@ fn valid_value(key: &str, value: &Value) -> bool {
     }
     if [
         "list.row.height",
+        "project.avatar.size",
         "popup.height",
         "popup.padding",
         "popup.viewport.margin",
