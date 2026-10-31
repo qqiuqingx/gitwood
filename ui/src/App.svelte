@@ -2,6 +2,7 @@
   import { onMount } from 'svelte';
   import { invoke, isTauri } from '@tauri-apps/api/core';
   import { listen } from '@tauri-apps/api/event';
+  import { listenWindowEvent } from './windowEvents';
   import { open as openDialog } from '@tauri-apps/plugin-dialog';
   import { commitText as c } from './i18n/commit';
   import RecoveryDialog from './features/commit/RecoveryDialog.svelte';
@@ -14,16 +15,19 @@
   import ErrorDialog from './features/browse/ErrorDialog.svelte';
   import GitWorkflow from './features/git/GitWorkflow.svelte';
   import ProjectWidget from './features/projects/ProjectWidget.svelte';
+  import OpenProjectDialog from './features/projects/OpenProjectDialog.svelte';
+  import { ProjectOpening } from './features/projects/opening.svelte';
   import { RepositoryBrowser } from './features/browse/browser.svelte';
   import { browseText as b } from './i18n/browse';
   const browser = new RepositoryBrowser();
+  const projects = new ProjectOpening(browser);
   let workflow = $state<GitWorkflow>();
   let browseReady = $state(false);
   async function chooseRepository() {
-    if (!isTauri() || browser.opening) return;
+    if (!isTauri() || browser.opening || projects.busy || projects.pending) return;
     try {
       const path = await openDialog({ directory: true, multiple: false, title: b('open') });
-      if (path) await browser.open(path);
+      if (path) await projects.request(path);
     } catch (error) { browser.report(error); }
   }
   import Splitter from './components/Splitter.svelte';
@@ -81,7 +85,7 @@
     const systemChanged = () => { if (choice === 'system') void refreshTheme(); };
     system.addEventListener('change', systemChanged);
     async function initialize() {
-      unlisten = await listen<Settings>('preferences-changed', ({ payload }) => {
+      unlisten = await listenWindowEvent<Settings>('preferences-changed', ({ payload }) => {
         // Do not replace current ratios with a backend snapshot while dragging.
         layout.commitVisible = payload.layout.commitVisible;
         layout.logVisible = payload.layout.logVisible;
@@ -91,7 +95,7 @@
       if (disposed) { unlisten(); return; }
       unlistenError = await listen<string>('settings-error', ({ payload }) => { settingsError = payload; });
       if (disposed) { unlisten(); unlistenError(); return; }
-      unlistenExit = await listen('save-before-exit', () => {
+      unlistenExit = await listenWindowEvent('save-before-exit', () => {
         if (closing) return;
         closing = true;
         const ratios = ready ? JSON.parse(JSON.stringify(layout.ratios)) : null;
@@ -121,12 +125,12 @@
     let disposed = false;
     const unlisteners: (() => void)[] = [];
     async function initializeBrowser() {
-      const refresh = await listen<[number, { status: boolean; refs: boolean; history: boolean }]>('repository-refresh', ({ payload: [generation, areas] }) => { void browser.refresh(areas, generation); });
+      const refresh = await listenWindowEvent<[number, { status: boolean; refs: boolean; history: boolean }]>('repository-refresh', ({ payload: [generation, areas] }) => { void browser.refresh(areas, generation); });
       if (disposed) { refresh(); return; } unlisteners.push(refresh);
-      const menu = await listen<string>('repository-menu', ({ payload }) => {
+      const menu = await listenWindowEvent<string>('repository-menu', ({ payload }) => {
         if (payload === 'open-project') void chooseRepository();
-        else if (payload === 'close-project') void browser.close().catch(error => browser.report(error));
-        else if (payload.startsWith('recent:')) void browser.open(payload.slice(7));
+        else if (payload === 'close-project' && !projects.pending && !projects.busy) void browser.close().catch(error => browser.report(error));
+        else if (payload.startsWith('recent:')) void projects.request(payload.slice(7));
         else if (payload === 'update-project') workflow?.update();
         else if (payload === 'commit-project') document.querySelector<HTMLElement>('.commit-panel textarea')?.focus();
         else if (payload === 'push-project') workflow?.push();
@@ -134,8 +138,10 @@
       if (disposed) { menu(); return; } unlisteners.push(menu);
       await browser.recentProjects();
       if (disposed) return;
-      const last = browser.recent.find(project => !project.failed);
-      if (last) await browser.open(last.path);
+      const initial = await invoke<string | null>('initial_repository');
+      if (disposed) return;
+      const path = initial ?? browser.recent.find(project => !project.failed)?.path;
+      if (path) await browser.open(path);
     }
     void initializeBrowser().catch(error => browser.report(error));
     return () => { disposed = true; unlisteners.forEach(unlisten => unlisten()); browser.dispose(); };
@@ -143,7 +149,7 @@
 </script>
 
 <main inert={closing}>
-  <header><ProjectWidget {browser} open={() => { void chooseRepository(); }} />
+  <header><ProjectWidget {browser} busy={projects.busy} open={() => { void chooseRepository(); }} select={path => { void projects.request(path); }} />
     <GitWorkflow bind:this={workflow} {browser} oncommitpush={() => { browser.commit.result = null; }} />
     <span class="grow"></span><button class="project" aria-label={b('refresh')} title={b('refresh')} disabled={!browser.project} onclick={() => { void browser.refresh({ status: true, refs: true, history: true }); }}>⟳</button>{#if version}<span>{version}</span>{/if}
   </header>
@@ -180,11 +186,12 @@
       <button onclick={chooseRepository} disabled={browser.opening}>{b('open')}</button>
       {#if browser.recent.length}<h2>{b('recentProjects')}</h2><div class="recent"><List label={b('recentProjects')} rowCount={browser.recent.length}
         getRow={index => ({ id: browser.recent[index].path, label: `${browser.recent[index].path}${browser.recent[index].failed ? ` (${b('failed')})` : ''}` })}
-        activateOnClick onactivate={row => { void browser.open(row.id); }} /></div>{/if}
+        activateOnClick onactivate={row => { void projects.request(row.id); }} /></div>{/if}
     </section>
   {/if}
   {#if browser.commit.result?.kind === 'recovery'}<RecoveryDialog result={browser.commit.result} close={()=>{browser.commit.result=null;}} />{/if}
 {#if browser.error}<ErrorDialog error={browser.error} projectOpen={!!browser.project} close={() => { browser.error = null; }} />{/if}
+{#if projects.pending}<OpenProjectDialog path={projects.pending} choose={target => { void projects.choose(target); }} cancel={() => projects.cancel()} />{/if}
 </main>
 <style>
   main { display: flex; flex-direction: column; height: 100%; }

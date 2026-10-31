@@ -7,6 +7,8 @@ fn main() {
             "save_layout",
             "set_tool_window",
             "finish_exit",
+            "open_project",
+            "initial_repository",
             "open_repository",
             "recent_repositories",
             "close_repository",

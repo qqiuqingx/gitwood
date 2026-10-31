@@ -1,16 +1,19 @@
 //! Typed, read-only repository IPC. No generic Git execution or filesystem API.
-use crate::settings::{RecentRepository, SettingsStore};
+use crate::{
+    project_windows::WindowSession,
+    settings::{RecentRepository, SettingsStore},
+};
 use gitwood_core::{
     git::{GitError, GitRunner, RunOptions},
     history::details::{Commit, FileChange, Filter},
     repo::{
         refs::References,
-        session::{LayoutInfo, Rows, Sessions, StatusSummary},
+        session::{LayoutInfo, Rows, StatusSummary},
         Repository,
     },
 };
 use serde::Serialize;
-use tauri::{AppHandle, Emitter, State};
+use tauri::{AppHandle, Manager, State};
 #[derive(Debug, Serialize)]
 pub struct Error {
     generation: Option<u64>,
@@ -48,7 +51,7 @@ pub struct Opened {
 #[tauri::command]
 pub async fn open_repository(
     app: AppHandle,
-    sessions: State<'_, Sessions>,
+    sessions: WindowSession,
     store: State<'_, SettingsStore>,
     path: std::path::PathBuf,
 ) -> Result<Opened, Error> {
@@ -58,22 +61,20 @@ pub async fn open_repository(
         Ok(l) => l.repository.root.clone(),
         Err(_) => path,
     };
-    store.update(|s| {
-        s.recent_repositories.retain(|r| r.path != record);
-        s.recent_repositories.insert(
-            0,
-            RecentRepository {
-                path: record,
-                failed: result.is_err(),
-            },
-        );
-        s.recent_repositories.truncate(20);
-    });
-    let _ = crate::native_menu::refresh_recent_menu(&app, &store.snapshot());
-    let l = result?;
+    record_recent(&app, &store, record, result.is_err());
+    let l = match result {
+        Ok(lease) => lease,
+        Err(error) => {
+            *sessions.state.project.lock().unwrap() = None;
+            return Err(error.into());
+        }
+    };
+    *sessions.state.project.lock().unwrap() = Some(l.repository.root.clone());
     let generation = l.generation;
+    let watcher_sessions = sessions.clone();
+    let watcher_app = app.clone();
     if let Err(error) = sessions.watch(generation, move |current, areas| {
-        let _ = app.emit("repository-refresh", (current, areas));
+        let _ = watcher_sessions.emit(&watcher_app, "repository-refresh", (current, areas));
     }) {
         store.update(|s| {
             if let Some(record) = s
@@ -84,13 +85,35 @@ pub async fn open_repository(
                 record.failed = true;
             }
         });
+        if sessions.generation() == generation {
+            *sessions.state.project.lock().unwrap() = None;
+            sessions.close();
+        }
         return Err(error.into());
     }
     sessions.check(&l)?;
+    if let Some(window) = app.get_webview_window(&sessions.label) {
+        let _ = window.set_title(&format!("{} — Gitwood", l.repository.root.display()));
+    }
     Ok(Opened {
         generation,
         repository: l.repository,
     })
+}
+
+pub(crate) fn record_recent(
+    app: &AppHandle,
+    store: &SettingsStore,
+    path: std::path::PathBuf,
+    failed: bool,
+) {
+    store.update(|s| {
+        s.recent_repositories.retain(|r| r.path != path);
+        s.recent_repositories
+            .insert(0, RecentRepository { path, failed });
+        s.recent_repositories.truncate(20);
+    });
+    let _ = crate::native_menu::refresh_recent_menu(app, &store.snapshot());
 }
 #[tauri::command]
 pub fn recent_repositories(store: State<'_, SettingsStore>) -> Vec<RecentProject> {
@@ -153,12 +176,16 @@ mod display_path_tests {
     }
 }
 #[tauri::command]
-pub fn close_repository(sessions: State<'_, Sessions>) -> u64 {
+pub fn close_repository(app: AppHandle, sessions: WindowSession) -> u64 {
+    *sessions.state.project.lock().unwrap() = None;
+    if let Some(window) = app.get_webview_window(&sessions.label) {
+        let _ = window.set_title("Gitwood");
+    }
     sessions.close()
 }
 #[tauri::command]
 pub async fn repository_status(
-    sessions: State<'_, Sessions>,
+    sessions: WindowSession,
     generation: u64,
 ) -> Result<StatusSummary, Error> {
     let l = sessions.lease(generation)?;
@@ -168,7 +195,7 @@ pub async fn repository_status(
 }
 #[tauri::command]
 pub async fn repository_refs(
-    sessions: State<'_, Sessions>,
+    sessions: WindowSession,
     generation: u64,
 ) -> Result<References, Error> {
     let l = sessions.lease(generation)?;
@@ -178,7 +205,7 @@ pub async fn repository_refs(
 }
 #[tauri::command]
 pub async fn history_layout(
-    sessions: State<'_, Sessions>,
+    sessions: WindowSession,
     generation: u64,
     filter: Filter,
 ) -> Result<LayoutInfo, Error> {
@@ -194,7 +221,7 @@ pub async fn history_layout(
 }
 #[tauri::command]
 pub async fn history_rows(
-    sessions: State<'_, Sessions>,
+    sessions: WindowSession,
     generation: u64,
     start: usize,
     end: usize,
@@ -206,7 +233,7 @@ pub async fn history_rows(
 }
 #[tauri::command]
 pub async fn commit_details(
-    sessions: State<'_, Sessions>,
+    sessions: WindowSession,
     generation: u64,
     hash: String,
 ) -> Result<Commit, Error> {
@@ -223,7 +250,7 @@ pub struct FilePage {
 }
 #[tauri::command]
 pub async fn commit_files(
-    sessions: State<'_, Sessions>,
+    sessions: WindowSession,
     generation: u64,
     hash: String,
     start: Option<usize>,
@@ -252,7 +279,7 @@ pub async fn commit_files(
 
 #[tauri::command]
 pub async fn history_position(
-    sessions: State<'_, Sessions>,
+    sessions: WindowSession,
     generation: u64,
     hash: String,
 ) -> Result<Option<u32>, Error> {
@@ -275,7 +302,7 @@ pub struct TreeViewport {
 }
 #[tauri::command]
 pub async fn commit_file_tree(
-    sessions: State<'_, Sessions>,
+    sessions: WindowSession,
     generation: u64,
     hash: String,
     viewport: TreeViewport,
@@ -301,7 +328,7 @@ pub struct IncludedPage {
 }
 #[tauri::command]
 pub async fn repository_changes(
-    sessions: State<'_, Sessions>,
+    sessions: WindowSession,
     generation: u64,
     viewport: TreeViewport,
 ) -> Result<IncludedPage, Error> {
@@ -324,7 +351,7 @@ pub async fn repository_changes(
 
 #[tauri::command]
 pub async fn worktree_diff(
-    sessions: State<'_, Sessions>,
+    sessions: WindowSession,
     generation: u64,
     path: gitwood_core::repo::RepoPath,
     area: gitwood_core::repo::preview::Area,
@@ -342,7 +369,7 @@ pub async fn worktree_diff(
 
 #[tauri::command]
 pub async fn commit_diff(
-    sessions: State<'_, Sessions>,
+    sessions: WindowSession,
     generation: u64,
     hash: String,
     path: gitwood_core::repo::RepoPath,
@@ -360,7 +387,7 @@ pub async fn commit_diff(
 
 #[tauri::command]
 pub async fn containing_branches(
-    sessions: State<'_, Sessions>,
+    sessions: WindowSession,
     generation: u64,
     hash: String,
 ) -> Result<gitwood_core::repo::preview::ContainingBranches, Error> {
@@ -382,7 +409,7 @@ impl From<gitwood_core::ops::CommitError> for Error {
 }
 #[tauri::command]
 pub async fn selection_preview(
-    sessions: State<'_, Sessions>,
+    sessions: WindowSession,
     generation: u64,
     path: gitwood_core::repo::RepoPath,
 ) -> Result<gitwood_core::repo::write::SelectionPreview, Error> {
@@ -398,7 +425,7 @@ pub async fn selection_preview(
 }
 #[tauri::command]
 pub async fn commit(
-    sessions: State<'_, Sessions>,
+    sessions: WindowSession,
     generation: u64,
     selection: gitwood_core::repo::inclusion::Selection,
     message: String,
@@ -418,13 +445,13 @@ pub async fn commit(
     .map_err(Into::into)
 }
 #[tauri::command]
-pub fn cancel_write(sessions: State<'_, Sessions>, generation: u64) -> Result<(), Error> {
+pub fn cancel_write(sessions: WindowSession, generation: u64) -> Result<(), Error> {
     sessions.lease(generation)?.cancel_write();
     Ok(())
 }
 #[tauri::command]
 pub async fn last_commit_message(
-    sessions: State<'_, Sessions>,
+    sessions: WindowSession,
     generation: u64,
 ) -> Result<String, Error> {
     let l = sessions.lease(generation)?;
@@ -434,7 +461,7 @@ pub async fn last_commit_message(
 }
 #[tauri::command]
 pub async fn rollback(
-    sessions: State<'_, Sessions>,
+    sessions: WindowSession,
     generation: u64,
     ids: Vec<String>,
     delete_added: bool,
@@ -450,7 +477,7 @@ pub async fn rollback(
 }
 #[tauri::command]
 pub async fn rollback_hunk(
-    sessions: State<'_, Sessions>,
+    sessions: WindowSession,
     generation: u64,
     hunk: gitwood_core::repo::inclusion::Hunks,
 ) -> Result<(), Error> {
@@ -464,7 +491,7 @@ pub async fn rollback_hunk(
 }
 #[tauri::command]
 pub async fn rollback_files(
-    sessions: State<'_, Sessions>,
+    sessions: WindowSession,
     generation: u64,
     ids: Vec<String>,
     start: usize,
@@ -477,7 +504,7 @@ pub async fn rollback_files(
 }
 #[tauri::command]
 pub async fn commit_message_history(
-    sessions: State<'_, Sessions>,
+    sessions: WindowSession,
     generation: u64,
 ) -> Result<Vec<String>, Error> {
     let l = sessions.lease(generation)?;
@@ -488,7 +515,7 @@ pub async fn commit_message_history(
 
 #[tauri::command]
 pub async fn inclusion_states(
-    sessions: State<'_, Sessions>,
+    sessions: WindowSession,
     generation: u64,
     selection: gitwood_core::repo::inclusion::Selection,
     ids: Vec<String>,
@@ -501,7 +528,7 @@ pub async fn inclusion_states(
 
 async fn branch_write(
     app: AppHandle,
-    sessions: State<'_, Sessions>,
+    sessions: WindowSession,
     generation: u64,
     operation: gitwood_core::ops::branch::BranchOperation,
     expected: String,
@@ -512,7 +539,8 @@ async fn branch_write(
     })
     .await
     .map_err(|e| Error::from(gitwood_core::repo::invalid(&e.to_string())))?;
-    let _ = app.emit(
+    let _ = sessions.emit(
+        &app,
         "repository-refresh",
         (generation, gitwood_core::repo::watch::Refresh::all()),
     );
@@ -522,7 +550,7 @@ async fn branch_write(
 #[tauri::command]
 pub async fn create_branch(
     app: AppHandle,
-    sessions: State<'_, Sessions>,
+    sessions: WindowSession,
     generation: u64,
     name: String,
     start: Option<String>,
@@ -546,7 +574,7 @@ pub async fn create_branch(
 #[tauri::command]
 pub async fn checkout_branch(
     app: AppHandle,
-    sessions: State<'_, Sessions>,
+    sessions: WindowSession,
     generation: u64,
     name: String,
     mode: gitwood_core::ops::branch::CheckoutMode,
@@ -565,7 +593,7 @@ pub async fn checkout_branch(
 #[tauri::command]
 pub async fn checkout_remote_branch(
     app: AppHandle,
-    sessions: State<'_, Sessions>,
+    sessions: WindowSession,
     generation: u64,
     remote: String,
     branch: String,
@@ -589,7 +617,7 @@ pub async fn checkout_remote_branch(
 #[tauri::command]
 pub async fn rename_branch(
     app: AppHandle,
-    sessions: State<'_, Sessions>,
+    sessions: WindowSession,
     generation: u64,
     name: String,
     new_name: String,
@@ -608,7 +636,7 @@ pub async fn rename_branch(
 #[tauri::command]
 pub async fn delete_branch(
     app: AppHandle,
-    sessions: State<'_, Sessions>,
+    sessions: WindowSession,
     generation: u64,
     name: String,
     force: bool,
@@ -627,7 +655,7 @@ pub async fn delete_branch(
 #[tauri::command]
 pub async fn set_upstream(
     app: AppHandle,
-    sessions: State<'_, Sessions>,
+    sessions: WindowSession,
     generation: u64,
     name: String,
     upstream: Option<String>,
@@ -646,7 +674,7 @@ pub async fn set_upstream(
 #[tauri::command]
 pub async fn fetch(
     app: AppHandle,
-    sessions: State<'_, Sessions>,
+    sessions: WindowSession,
     generation: u64,
     remote: Option<String>,
     all: bool,
@@ -655,9 +683,10 @@ pub async fn fetch(
     let lease = sessions.lease(generation)?;
     let (progress, mut events) = gitwood_core::git::progress_channel::<String>();
     let event_app = app.clone();
+    let event_sessions = sessions.clone();
     tauri::async_runtime::spawn(async move {
         while let Some(message) = events.recv().await {
-            let _ = event_app.emit("remote_progress", (generation, message));
+            let _ = event_sessions.emit(&event_app, "remote_progress", (generation, message));
         }
     });
     let result = tauri::async_runtime::spawn_blocking(move || {
@@ -670,7 +699,8 @@ pub async fn fetch(
     })
     .await
     .map_err(|e| gitwood_core::repo::invalid(&e.to_string()))?;
-    let _ = app.emit(
+    let _ = sessions.emit(
+        &app,
         "repository-refresh",
         (generation, gitwood_core::repo::watch::Refresh::all()),
     );
@@ -680,7 +710,7 @@ pub async fn fetch(
 #[tauri::command]
 pub async fn update_project(
     app: AppHandle,
-    sessions: State<'_, Sessions>,
+    sessions: WindowSession,
     generation: u64,
     expected: String,
     strategy: Option<gitwood_core::ops::remote::UpdateStrategy>,
@@ -688,9 +718,10 @@ pub async fn update_project(
     let lease = sessions.lease(generation)?;
     let (progress, mut events) = gitwood_core::git::progress_channel::<String>();
     let event_app = app.clone();
+    let event_sessions = sessions.clone();
     tauri::async_runtime::spawn(async move {
         while let Some(message) = events.recv().await {
-            let _ = event_app.emit("remote_progress", (generation, message));
+            let _ = event_sessions.emit(&event_app, "remote_progress", (generation, message));
         }
     });
     let result = tauri::async_runtime::spawn_blocking(move || {
@@ -698,7 +729,8 @@ pub async fn update_project(
     })
     .await
     .map_err(|e| gitwood_core::repo::invalid(&e.to_string()))?;
-    let _ = app.emit(
+    let _ = sessions.emit(
+        &app,
         "repository-refresh",
         (generation, gitwood_core::repo::watch::Refresh::all()),
     );
@@ -707,7 +739,7 @@ pub async fn update_project(
 
 #[tauri::command]
 pub async fn default_update_strategy(
-    sessions: State<'_, Sessions>,
+    sessions: WindowSession,
     generation: u64,
 ) -> Result<gitwood_core::ops::remote::UpdateStrategy, Error> {
     let lease = sessions.lease(generation)?;
@@ -719,7 +751,7 @@ pub async fn default_update_strategy(
 #[tauri::command]
 pub async fn abort_update(
     app: AppHandle,
-    sessions: State<'_, Sessions>,
+    sessions: WindowSession,
     generation: u64,
     expected: String,
     stash: Option<String>,
@@ -727,9 +759,10 @@ pub async fn abort_update(
     let lease = sessions.lease(generation)?;
     let (progress, mut events) = gitwood_core::git::progress_channel::<String>();
     let event_app = app.clone();
+    let event_sessions = sessions.clone();
     tauri::async_runtime::spawn(async move {
         while let Some(message) = events.recv().await {
-            let _ = event_app.emit("remote_progress", (generation, message));
+            let _ = event_sessions.emit(&event_app, "remote_progress", (generation, message));
         }
     });
     let result = tauri::async_runtime::spawn_blocking(move || {
@@ -737,7 +770,8 @@ pub async fn abort_update(
     })
     .await
     .map_err(|e| gitwood_core::repo::invalid(&e.to_string()))?;
-    let _ = app.emit(
+    let _ = sessions.emit(
+        &app,
         "repository-refresh",
         (generation, gitwood_core::repo::watch::Refresh::all()),
     );
@@ -747,7 +781,7 @@ pub async fn abort_update(
 #[tauri::command]
 pub async fn push(
     app: AppHandle,
-    sessions: State<'_, Sessions>,
+    sessions: WindowSession,
     generation: u64,
     options: gitwood_core::ops::remote::PushOptions,
     expected: String,
@@ -755,9 +789,10 @@ pub async fn push(
     let lease = sessions.lease(generation)?;
     let (progress, mut events) = gitwood_core::git::progress_channel::<String>();
     let event_app = app.clone();
+    let event_sessions = sessions.clone();
     tauri::async_runtime::spawn(async move {
         while let Some(message) = events.recv().await {
-            let _ = event_app.emit("remote_progress", (generation, message));
+            let _ = event_sessions.emit(&event_app, "remote_progress", (generation, message));
         }
     });
     let result = tauri::async_runtime::spawn_blocking(move || {
@@ -765,7 +800,8 @@ pub async fn push(
     })
     .await
     .map_err(|e| gitwood_core::repo::invalid(&e.to_string()))?;
-    let _ = app.emit(
+    let _ = sessions.emit(
+        &app,
         "repository-refresh",
         (generation, gitwood_core::repo::watch::Refresh::all()),
     );
@@ -774,7 +810,7 @@ pub async fn push(
 
 #[tauri::command]
 pub async fn push_preview(
-    sessions: State<'_, Sessions>,
+    sessions: WindowSession,
     generation: u64,
     options: gitwood_core::ops::remote::PushOptions,
     start: Option<usize>,
@@ -793,7 +829,7 @@ pub async fn push_preview(
 #[allow(clippy::too_many_arguments)]
 pub async fn commit_and_push(
     app: AppHandle,
-    sessions: State<'_, Sessions>,
+    sessions: WindowSession,
     generation: u64,
     selection: gitwood_core::repo::inclusion::Selection,
     message: String,
@@ -804,9 +840,10 @@ pub async fn commit_and_push(
     let lease = sessions.lease(generation)?;
     let (progress, mut events) = gitwood_core::git::progress_channel::<String>();
     let event_app = app.clone();
+    let event_sessions = sessions.clone();
     tauri::async_runtime::spawn(async move {
         while let Some(message) = events.recv().await {
-            let _ = event_app.emit("remote_progress", (generation, message));
+            let _ = event_sessions.emit(&event_app, "remote_progress", (generation, message));
         }
     });
     let result = tauri::async_runtime::spawn_blocking(move || {
@@ -821,7 +858,8 @@ pub async fn commit_and_push(
     })
     .await
     .map_err(|e| Error::from(gitwood_core::repo::invalid(&e.to_string())))?;
-    let _ = app.emit(
+    let _ = sessions.emit(
+        &app,
         "repository-refresh",
         (generation, gitwood_core::repo::watch::Refresh::all()),
     );
@@ -830,7 +868,7 @@ pub async fn commit_and_push(
 
 #[tauri::command]
 pub async fn undo_commit(
-    sessions: State<'_, Sessions>,
+    sessions: WindowSession,
     generation: u64,
     expected: String,
 ) -> Result<String, Error> {
@@ -843,10 +881,7 @@ pub async fn undo_commit(
     .map_err(Into::into)
 }
 #[tauri::command]
-pub async fn undo_in_progress(
-    sessions: State<'_, Sessions>,
-    generation: u64,
-) -> Result<bool, Error> {
+pub async fn undo_in_progress(sessions: WindowSession, generation: u64) -> Result<bool, Error> {
     let l = sessions.lease(generation)?;
     let result = l.undo_in_progress().await;
     sessions.check(&l)?;

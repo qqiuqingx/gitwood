@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { listen } from '@tauri-apps/api/event';
+  import { listenWindowEvent } from '../../windowEvents';
   import { invoke } from '@tauri-apps/api/core';
   import Popup from '../../components/Popup.svelte';
   import PagedFileTree from '../browse/PagedFileTree.svelte';
@@ -67,7 +67,7 @@
   onMount(() => {
     let disposed = false;
     let unlisten: (() => void) | undefined;
-    void listen<[number, string]>('remote_progress', ({ payload }) => {
+    void listenWindowEvent<[number, string]>('remote_progress', ({ payload }) => {
       if (!disposed && payload[0] === browser.generation) progress = payload[1];
     }).then(value => { unlisten = value; if (disposed) value(); });
     return () => { disposed = true; unlisten?.(); };
