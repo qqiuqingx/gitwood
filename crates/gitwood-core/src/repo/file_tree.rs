@@ -168,6 +168,36 @@ impl FileTree {
             }
             self.add(file, Some(parent));
         }
+        self.compact_directories(root_index);
+    }
+    fn compact_directories(&mut self, root: usize) {
+        for index in (root + 1..self.nodes.len()).rev() {
+            self.nodes[index].count = if self.nodes[index].has_children {
+                self.children[index]
+                    .iter()
+                    .map(|&child| self.nodes[child].count)
+                    .sum()
+            } else {
+                1
+            };
+        }
+        let mut stack = self.children[root].clone();
+        while let Some(index) = stack.pop() {
+            while self.children[index].len() == 1 {
+                let child = self.children[index][0];
+                if !self.nodes[child].has_children {
+                    break;
+                }
+                // The displayed directory uses the final raw-path ID so selection rules
+                // still address exactly the directory represented by the compact label.
+                self.nodes[index].id = std::mem::take(&mut self.nodes[child].id);
+                let label = std::mem::take(&mut self.nodes[child].label);
+                self.nodes[index].label.push('/');
+                self.nodes[index].label.push_str(&label);
+                self.children[index] = std::mem::take(&mut self.children[child]);
+            }
+            stack.extend_from_slice(&self.children[index]);
+        }
     }
     fn add(&mut self, node: FileNode, parent: Option<usize>) -> usize {
         let index = self.nodes.len();

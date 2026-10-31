@@ -11,6 +11,7 @@
     ontoggle?: () => void; query: string;
   } = $props();
   const group = $derived(fileGroup(file.id));
+  const directory = $derived(!group && !file.path && !file.id.startsWith('loading:'));
   const parts = $derived(filePathParts(file.path?.display ?? file.label));
   const icon = $derived(fileTypeIcon(parts.name));
   const details = $derived([file.path?.display ?? file.label, file.note,
@@ -22,8 +23,9 @@
   <span class="note"><Highlight text={fileCount(file.count)} {query} /></span>
 {:else}
   {#if file.path}<span class="file-icon" style:color={`var(--${icon.color})`} aria-hidden="true">{icon.glyph}</span>
-  {:else if !file.id.startsWith('loading:')}<span class="file-icon folder" aria-hidden="true">▱</span>{/if}
+  {:else if directory}<span class="file-icon folder" aria-hidden="true">▱</span>{/if}
   <span class="name" style:color={file.status ? `var(--status-${fileStatus(file)})` : undefined} title={details}><Highlight text={file.path ? parts.name : file.label} {query} /></span>
+  {#if directory}<span class="note"><Highlight text={fileCount(file.count)} {query} /></span>{/if}
   {#if flat && file.path && parts.directory}<span class="note directory" title={details}><Highlight text={parts.directory} {query} /></span>{/if}
   {#if file.note}<span class="note" title={details}>{file.note} →</span>{/if}
   {#if file.conflicted}<span class="conflicted">{t('conflicted')}</span>{/if}

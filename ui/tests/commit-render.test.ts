@@ -55,6 +55,16 @@ it('renders group counts without parentheses and uses the same singular/plural t
  const folder=render(FileTreeRow,{props:{file:{...row,path:null,label:'src',hasChildren:true},flat:false,changes:true,query:''}}).body;
  expect(folder).toContain('folder');
 });
+it('renders compact directory paths and their file counts as escaped text with inclusion controls', () => {
+ Object.defineProperty(globalThis.navigator,'language',{configurable:true,value:'en-US'});
+ const directory: FileRow={...row,id:'changes/dir/7372632f',path:null,label:'src/main/java/<pkg>',hasChildren:true,count:3,staged:false,unstaged:false};
+ const body=render(FileTreeRow,{props:{file:directory,flat:false,changes:true,query:'',state:'some',ontoggle:()=>{}}}).body;
+ expect(body).toContain('src/main/java/&lt;pkg>'); expect(body).not.toContain('<pkg>');
+ expect(body).toContain('3 files'); expect(body).toContain('aria-checked="mixed"');
+ expect(body).toContain('folder'); expect(body).not.toContain('note directory');
+ const history=render(FileTreeRow,{props:{file:{...directory,count:1},flat:false,changes:false,query:''}}).body;
+ expect(history).toContain('1 file'); expect(history).not.toContain('role="checkbox"');
+});
 it('renders a real editable multiline draft, enables commit and push, and disables empty-message commit',()=>{
  Object.defineProperty(globalThis.navigator,'language',{configurable:true,value:'en-US'});
  const browser=new RepositoryBrowser();browser.commit.message='draft\n<script>unsafe</script>';browser.commit.count=1;
