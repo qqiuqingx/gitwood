@@ -9,6 +9,9 @@
   let { browser, ratio = $bindable(0.6), label }: { browser: RepositoryBrowser; ratio?: number; label: string } = $props();
   let branches = $state<{ branches: string[]; total: number } | null>(null);
   let expanded = $state(false);
+  // IDEA expands every node of the commit changes tree for each newly selected commit.
+  let files = $state<ReadonlySet<string>>(new Set(['*']));
+  $effect.pre(() => { void browser.selected; files = new Set(['*']); });
   const labels = $derived(browser.details ? refLabelsByHash(browser.refs).get(browser.details.hash) ?? [] : []);
   const when = $derived(browser.details ? detailsDateTime(browser.details.author_time) : null);
   const subject = $derived(browser.details ? browser.details.message.split('\n', 1)[0] : '');
@@ -24,7 +27,7 @@
 </script>
 <Splitter axis="y" {label} minFirst={90} minSecond={90} bind:ratio>
   {#snippet first()}
-    <PagedFileTree onselect={row => { if (row.path) browser.previewFile = { path: row.path, staged: row.staged, unstaged: row.unstaged, hash: browser.selected }; }} hash={browser.selected} root={browser.project ? projectName(browser.project.root) : ''} generation={browser.generation} onerror={error => browser.report(error)} />
+    <PagedFileTree onselect={row => { if (row.path) browser.previewFile = { path: row.path, staged: row.staged, unstaged: row.unstaged, hash: browser.selected }; }} hash={browser.selected} root={browser.project ? projectName(browser.project.root) : ''} bind:expanded={files} generation={browser.generation} onerror={error => browser.report(error)} />
   {/snippet}
   {#snippet second()}
     <div class="details">

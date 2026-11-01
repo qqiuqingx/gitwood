@@ -5,9 +5,12 @@
   import Popup from '../../components/Popup.svelte';
   import PagedFileTree from '../browse/PagedFileTree.svelte';
   import type { RepositoryBrowser } from '../browse/browser.svelte';
-  import type { References } from '../browse/types';
+  import type { Reference, References } from '../browse/types';
+  import { ideaIcon } from '../../components/icons/idea';
+  import { appearance } from '../../theme/appearance.svelte';
+  import { gitText } from '../../i18n/git';
   import {
-    branchPopupItems, branchForPreview, commitPushFeedback, defaultPushOptions, defaultUpdateStrategy, isNewPushTarget, updateRequest,
+    branchFolderPrefix, branchSectionPrefix, defaultFavorite, trackCounts, branchPopupItems, branchForPreview, commitPushFeedback, defaultPushOptions, defaultUpdateStrategy, isNewPushTarget, updateRequest,
     pushRejectionText, remoteErrorText, type BranchPopupHandlers, type CheckoutMode, type CommitPushResult,
     type PushOptions, type PushPreview, type RemoteError, type RemoteOutcome, type UpdateStrategy,
   } from './model';
@@ -63,7 +66,28 @@
     commit: () => { popup = false; document.querySelector<HTMLElement>('.commit-panel textarea')?.focus(); },
     fetch: () => { popup = false; void fetchRemote(); },
   };
-  const branchItems = $derived(refs ? branchPopupItems(refs, handlers) : []);
+  // Folder expansion lives for this window only, like IDEA's branch popup tree state.
+  let branchFolders = $state<ReadonlySet<string>>(new Set());
+  function toggleFolder(id: string) {
+    const next = new Set(branchFolders);
+    if (!next.delete(id)) next.add(id);
+    branchFolders = next;
+  }
+  const branchRefs = $derived(new Map(refs ? [...refs.local, ...Object.values(refs.remotes).flat(), ...refs.tags].map(ref => [ref.name, ref] as const) : []));
+  const branchRef = (id: string) => branchRefs.get(id.replace(/^recent:/, ''));
+  const branchItems = $derived(refs ? branchPopupItems(refs, handlers, branchFolders, toggleFolder).map(item =>
+    item.id.startsWith(branchSectionPrefix) ? { ...item, icon: branchSectionIcon }
+    : item.id.startsWith(branchFolderPrefix) ? { ...item, icon: branchFolderIcon }
+    : branchRef(item.id) ? { ...item, icon: branchIcon, badge: branchBadge, trailing: branchTrailing } : item) : []);
+  /** IDEA GitBranchesTreeRenderer: current branch uses the tag label icon; favorites the star. */
+  function branchIconName(ref: Reference | undefined) {
+    const name = ref?.name.startsWith('refs/heads/') ? ref.name.slice(11) : null;
+    const favorite = name !== null && defaultFavorite(name);
+    if (name !== null && name === refs?.head.head) return favorite ? 'currentBranchFavoriteLabel' : 'currentBranchLabel';
+    return favorite ? 'star' : 'branch';
+  }
+  const shortUpstream = (upstream: string | null) => upstream?.replace(/^refs\/remotes\//, '') ?? '';
+  const countText = (count: number) => count > 99 ? '99+' : String(count);
   export function branchHandlers(): BranchPopupHandlers { return handlers; }
 
   onMount(() => {
@@ -173,11 +197,21 @@
   <svg class="chevron" viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><path d="m4 6 4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.2" /></svg>
 </button>
 <span class="remote-actions">
-  <button title="Update Project" disabled={!browser.project || busy} onclick={() => handlers.update()}>↓</button>
-  <button title="Push" disabled={!browser.project || busy} onclick={() => openPush(null)}>↑</button>
-  <button title="Fetch" disabled={!browser.project || busy} onclick={() => void fetchRemote()}>↻</button>
+  <button title={gitText('updateProject')} disabled={!browser.project || busy} onclick={() => handlers.update()}>↓</button>
+  <button title={gitText('pushAction')} disabled={!browser.project || busy} onclick={() => openPush(null)}>↑</button>
+  <button title={gitText('fetch')} disabled={!browser.project || busy} onclick={() => void fetchRemote()}>↻</button>
 </span>
-{#if popup && refs}<Popup items={branchItems} label="Git Branches" anchor={branchAnchor} onclose={() => { popup = false; }} />{/if}
+{#snippet branchSectionIcon(id: string)}<svg class="folder-chevron" class:expanded={!branchFolders.has(id)} viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><path d="m6 4 4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.2" /></svg>{/snippet}
+{#snippet branchFolderIcon(id: string)}<svg class="folder-chevron" class:expanded={branchFolders.has(id)} viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><path d="m6 4 4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.2" /></svg><img class="branch-icon" src={ideaIcon('folder', appearance.dark)} alt="" width="16" height="16" />{/snippet}
+{#snippet branchIcon(id: string)}{@const ref = branchRef(id)}<img class="branch-icon" src={ideaIcon(branchIconName(ref), appearance.dark)} alt="" width="16" height="16" />{/snippet}
+{#snippet branchBadge(id: string)}{@const counts = trackCounts(branchRef(id)?.track ?? '')}
+  {#if counts.ahead}<span class="track outgoing" title={gitText('outgoing').replace('{count}', String(counts.ahead))}><img src={ideaIcon('changesPush', appearance.dark)} alt="" width="12" height="12" />{countText(counts.ahead)}</span>{/if}
+  {#if counts.behind}<span class="track incoming" title={gitText('incoming').replace('{count}', String(counts.behind))}><img src={ideaIcon('changesUpdate', appearance.dark)} alt="" width="12" height="12" />{countText(counts.behind)}</span>{/if}
+{/snippet}
+{#snippet branchTrailing(id: string)}{@const ref = branchRef(id)}
+  {#if ref?.upstream}<span class="upstream">{shortUpstream(ref.upstream)}</span>{/if}
+{/snippet}
+{#if popup && refs}<div class="branch-popup"><Popup items={branchItems} label={gitText('branches')} anchor={branchAnchor} onclose={() => { popup = false; }} /></div>{/if}
 
 {#if dialog}
   <dialog bind:this={workflowDialog} class="workflow-dialog" class:push={dialog === 'push'} aria-labelledby="workflow-title"
@@ -251,6 +285,14 @@
 <style>
   .branch-control,.remote-actions button { border: 0; background: none; color: inherit; font: inherit; padding: var(--space-panel-y) var(--space-inline); }
   .branch-control:hover,.remote-actions button:hover { background: var(--toolbar-hover-bg); }
+  .branch-popup { --popup-width: calc(var(--font-ui-size) * 30); }
+  .branch-icon, .folder-chevron { flex: none; }
+  .folder-chevron { color: var(--text-secondary); }
+  .folder-chevron.expanded { transform: rotate(90deg); }
+  .track { display: inline-flex; align-items: center; margin-inline-start: var(--space-inline); font-size: var(--font-small-size); vertical-align: middle; }
+  .outgoing { color: var(--status-added); }
+  .incoming { color: var(--accent); }
+  .upstream { flex: none; max-width: 40%; overflow: hidden; text-overflow: ellipsis; color: var(--text-secondary); font-size: var(--font-small-size); }
   .branch-control { display: inline-flex; align-items: center; gap: var(--space-inline); }
   .branch-control > svg { flex: none; color: var(--text-header-secondary); }
   .branch-control .outgoing { color: var(--text-header-outgoing); }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { branchPopupItems, commitPushFeedback, defaultPushOptions, defaultUpdateStrategy, isNewPushTarget, pushPageRanges, pushRejectionText, remoteErrorText, updateRequest } from '../src/features/git/model';
+import { branchPopupItems, trackCounts, commitPushFeedback, defaultPushOptions, defaultUpdateStrategy, isNewPushTarget, pushPageRanges, pushRejectionText, remoteErrorText, updateRequest } from '../src/features/git/model';
 import type { References } from '../src/features/browse/types';
 
 const refs: References = {
@@ -15,11 +15,35 @@ const refs: References = {
 describe('Git workflow model', () => {
   it('groups recent, local, remote and tags and disables current checkout/delete and P1 actions', () => {
     const items = branchPopupItems(refs, { checkout: () => {}, checkoutRemote: () => {}, newFrom: () => {}, update: () => {}, push: () => {}, rename: () => {}, delete: () => {}, newBranch: () => {}, commit: () => {}, fetch: () => {} });
-    expect(items.map(item => item.label)).toContain('Recent');
+    expect(items.map(item => item.id)).toContain('section:recent');
     const main = items.find(item => item.id === 'refs/heads/main')!;
     expect(main.children?.find(item => item.id.endsWith(':checkout'))?.disabled).toBe(true);
     expect(main.children?.find(item => item.id.endsWith(':delete'))?.disabled).toBe(true);
     expect(main.children?.find(item => item.id.endsWith(':compare'))?.label).toContain('P1');
+  });
+  it('groups slash prefixes into IDEA folders that expand in place, current and favorites first', () => {
+    const handlers = { checkout: () => {}, checkoutRemote: () => {}, newFrom: () => {}, update: () => {}, push: () => {}, rename: () => {}, delete: () => {}, newBranch: () => {}, commit: () => {}, fetch: () => {} };
+    const ref = (name: string) => ({ name, hash: '1', peeled: null, upstream: null, track: '' });
+    const tree: References = { ...refs, local: [ref('refs/heads/zeta'), ref('refs/heads/codex/a'), ref('refs/heads/codex/b'), ref('refs/heads/master'), ref('refs/heads/main')] };
+    const toggled: string[] = [];
+    const collapsed = branchPopupItems(tree, handlers, new Set(), id => toggled.push(id));
+    const local = collapsed.slice(collapsed.findIndex(item => item.id === 'section:local') + 1, collapsed.findIndex(item => item.id === 'section:remote'));
+    expect(local.map(item => item.label)).toEqual(['main', 'master', 'codex', 'zeta']);
+    const folder = local.find(item => item.label === 'codex')!;
+    expect(folder.keepOpen).toBe(true);
+    folder.run!();
+    expect(toggled).toEqual(['folder:local/codex']);
+    const open = branchPopupItems(tree, handlers, new Set(['folder:local/codex', 'folder:remote/origin']));
+    expect(open.filter(item => item.level === 2 && item.id.startsWith('refs/heads/')).map(item => item.label)).toEqual(['a', 'b']);
+    expect(open.find(item => item.id === 'refs/remotes/origin/main')?.label).toBe('main');
+    expect(collapsed.some(item => item.id === 'refs/remotes/origin/main')).toBe(false);
+    const folded = branchPopupItems(tree, handlers, new Set(['section:local']));
+    expect(folded.some(item => item.id === 'refs/heads/zeta')).toBe(false);
+    expect(folded.find(item => item.id === 'section:local')?.keepOpen).toBe(true);
+  });
+  it('parses upstream track counts', () => {
+    expect(trackCounts('ahead 2, behind 105')).toEqual({ ahead: 2, behind: 105 });
+    expect(trackCounts('gone')).toEqual({ ahead: 0, behind: 0 });
   });
   it('uses upstream remote/branch and leaves force lease and tags off', () => {
     expect(defaultPushOptions(refs)).toEqual({ remote: 'origin', branch: 'main', forceWithLease: false, tags: false });

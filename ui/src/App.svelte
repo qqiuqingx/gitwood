@@ -34,6 +34,7 @@
   import { detectLocale, translate } from './i18n';
   import { defaultLayout, type Layout } from './layout/state';
   import { applyTheme, effectiveTheme, type Theme, type ThemeChoice, type ThemeError } from './theme';
+  import { appearance } from './theme/appearance.svelte';
 
   interface Settings { theme: ThemeChoice; layout: Layout }
   const locale = detectLocale(navigator.language);
@@ -77,7 +78,7 @@
       const request = ++generation;
       try {
         const theme = await invoke<Theme>('get_theme', { name });
-        if (!disposed && request === generation) { applyTheme(theme); themeErrors = theme.errors; }
+        if (!disposed && request === generation) { applyTheme(theme); appearance.dark = theme.dark; themeErrors = theme.errors; }
       } catch (error) {
         if (!disposed && request === generation) { active = ''; settingsError = String(error); }
       }

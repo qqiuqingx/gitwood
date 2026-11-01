@@ -16,14 +16,19 @@ export function fileRowLabel(row: { id: string; label: string; count: number; pa
   const { name, directory } = filePathParts(row.path.display);
   return directory ? `${name} ${directory}` : name;
 }
-const fileIcons: Record<string, { glyph: string; color: string }> = {
-  java: { glyph: 'J', color: 'syntax-number' }, kt: { glyph: 'K', color: 'syntax-keyword' },
-  ts: { glyph: 'TS', color: 'status-modified' }, js: { glyph: 'JS', color: 'syntax-number' },
-  svelte: { glyph: 'S', color: 'status-untracked' }, rs: { glyph: 'R', color: 'syntax-type' },
-  md: { glyph: '≡', color: 'text-secondary' }, yml: { glyph: 'Y', color: 'syntax-string' },
-  yaml: { glyph: 'Y', color: 'syntax-string' }, xml: { glyph: '‹›', color: 'syntax-number' },
-  sql: { glyph: '▤', color: 'status-modified' }, json: { glyph: '{}', color: 'syntax-number' },
+// IDEA expui icon per extension; file names cannot tell Java classes from interfaces, so `.java` uses the class icon.
+const fileIcons: Record<string, string> = {
+  java: 'class', vue: 'vue', js: 'javaScript', mjs: 'javaScript', cjs: 'javaScript', jsx: 'javaScript',
+  ts: 'typeScript', mts: 'typeScript', cts: 'typeScript', tsx: 'typeScript', json: 'json', xml: 'xml',
+  yml: 'yaml', yaml: 'yaml', sql: 'sql', html: 'html', htm: 'html', css: 'css', scss: 'css', less: 'css',
+  properties: 'properties', sh: 'shell', bash: 'shell', zsh: 'shell', gradle: 'gradle', groovy: 'groovy',
+  png: 'image', jpg: 'image', jpeg: 'image', gif: 'image', svg: 'image', webp: 'image', ico: 'image',
+  csv: 'csv', toml: 'toml', c: 'c', cpp: 'cpp', cc: 'cpp', cxx: 'cpp', hpp: 'cpp', h: 'h',
+  patch: 'patch', diff: 'patch', zip: 'archive', jar: 'archive', war: 'archive', tar: 'archive', gz: 'archive',
+  conf: 'config', ini: 'config', cfg: 'config',
 };
-export function fileTypeIcon(name: string) {
-  return fileIcons[name.slice(name.lastIndexOf('.') + 1).toLowerCase()] ?? { glyph: '≡', color: 'text-secondary' };
+export function fileTypeIcon(name: string): string {
+  if (name === 'Dockerfile') return 'docker';
+  const dot = name.lastIndexOf('.');
+  return (dot > 0 && fileIcons[name.slice(dot + 1).toLowerCase()]) || 'text';
 }

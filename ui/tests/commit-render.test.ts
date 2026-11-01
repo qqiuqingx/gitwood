@@ -28,7 +28,7 @@ const row: FileRow = { id:'changes/file/test', label:'src/<unsafe>.ts', path:{di
 it('renders flat filenames, muted directories and type icons with staging information only in tooltips', () => {
  const body=render(FileTreeRow,{props:{file:row,flat:true,changes:true,query:'',ontoggle:()=>{}}}).body;
  expect(body).toContain('&lt;unsafe>.ts'); expect(body).not.toContain('<unsafe>');
- expect(body).toContain('var(--status-modified)'); expect(body).toContain('TS');
+ expect(body).toContain('var(--status-modified)'); expect(body).toContain('typeScript.svg');
  expect(body).toMatch(/class="note directory[^>]*>.*src/s);
  expect(body).toContain('Staged · Unstaged');
  expect(body.replace(/title="[^"]*"/g,'')).not.toMatch(/Staged|Unstaged/);
@@ -49,9 +49,11 @@ it('renders group counts without parentheses and uses the same singular/plural t
  expect(fileRowLabel(row,true)).toBe('<unsafe>.ts src');
  expect(filePathParts('src/sub/file.rs')).toEqual({name:'file.rs',directory:'src/sub'});
  expect(filePathParts('README.md')).toEqual({name:'README.md',directory:''});
- for(const extension of ['java','kt','ts','js','svelte','rs','md','yml','yaml','xml','sql','json'])expect(fileTypeIcon(`test.${extension}`).glyph).toBeTruthy();
- expect(fileTypeIcon('test.TS')).toEqual(fileTypeIcon('test.ts'));
- expect(fileTypeIcon('unknown.bin')).toEqual({glyph:'≡',color:'text-secondary'});
+ expect(fileTypeIcon('Test.java')).toBe('class');
+ expect(fileTypeIcon('calendar.vue')).toBe('vue');
+ expect(fileTypeIcon('test.TS')).toBe('typeScript');
+ expect(fileTypeIcon('Dockerfile')).toBe('docker');
+ for(const name of ['README.md','unknown.bin','.env','Makefile'])expect(fileTypeIcon(name)).toBe('text');
  const folder=render(FileTreeRow,{props:{file:{...row,path:null,label:'src',hasChildren:true},flat:false,changes:true,query:''}}).body;
  expect(folder).toContain('folder');
 });

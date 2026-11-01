@@ -135,3 +135,20 @@ avoids signed Int.MIN_VALUE overflow; path hash selects one of nine gradients
 without persisted indices. CSS renders the avatar with arcRatio 0.4 (radius 20%)
 and theme variables; Walnut uses the upstream Dark palette. No upstream artwork
 or product marks are included.
+
+File tree and branch icons copied from intellij-community
+---------------------------------------------------------
+Upstream/revision: same intellij-community revision recorded above.
+Sources (unmodified SVGs, Apache-2.0 as stated in their headers or by the
+upstream repository license; Copyright 2000-2024 JetBrains s.r.o. and contributors):
+  platform/icons/src/expui/nodes/{class,folder,module,star}[_dark].svg
+  platform/icons/src/vcs/branch[_dark].svg
+  platform/dvcs-impl/shared/resources/icons/new/{currentBranchLabel,
+    currentBranchFavoriteLabel}[_dark].svg, {changesPush,changesUpdate}@12x12[_dark].svg
+    (stored locally without the @12x12 suffix)
+  platform/icons/src/expui/fileTypes/{archive,c,config,cpp,css,csv,docker,gradle,
+    groovy,h,html,image,javaScript,json,patch,properties,shell,sql,text,toml,
+    typeScript,xml,yaml}[_dark].svg, vue.svg
+Local: ui/src/components/icons/idea/.
+The language icons (for example Vue, TypeScript, Docker) depict file types only;
+they are not used as Gitwood product identity.

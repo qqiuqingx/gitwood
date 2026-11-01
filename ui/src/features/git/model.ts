@@ -1,5 +1,6 @@
 import type { PopupItem } from '../../components/popup';
 import type { Reference, References } from '../browse/types';
+import { gitText } from '../../i18n/git';
 
 export type CheckoutMode = 'normal' | 'smart' | 'force';
 export type UpdateStrategy = 'merge' | 'rebase';
@@ -23,7 +24,15 @@ const remoteName = (name: string) => name.replace(/^refs\/remotes\//, '');
 const currentName = (refs: References) => refs.head.head ? `refs/heads/${refs.head.head}` : '';
 const currentBranch = (refs: References) => refs.head.head && refs.head.head !== '(detached)' ? refs.head.head : null;
 
-function branchActions(ref: Reference, refs: References, handlers: BranchPopupHandlers): PopupItem {
+/** Counts from `%(upstream:track,nobracket)`, e.g. "ahead 2, behind 1". */
+export function trackCounts(track: string): { ahead: number; behind: number } {
+  return { ahead: Number(/ahead (\d+)/.exec(track)?.[1] ?? 0), behind: Number(/behind (\d+)/.exec(track)?.[1] ?? 0) };
+}
+/** IDEA marks the main/master branches as favorites by default; favorites cannot be edited yet. */
+export const defaultFavorite = (name: string) => name === 'main' || name === 'master';
+
+/** Branch row with its action submenu; `label` defaults to the full branch name. */
+export function branchItem(ref: Reference, refs: References, handlers: BranchPopupHandlers, label?: string, level = 0): PopupItem {
   const name = ref.name.startsWith('refs/heads/') ? localName(ref.name) : remoteName(ref.name);
   const local = ref.name.startsWith('refs/heads/');
   const current = ref.name === currentName(refs);
@@ -31,23 +40,51 @@ function branchActions(ref: Reference, refs: References, handlers: BranchPopupHa
     const [remote, ...parts] = name.split('/'); handlers.checkoutRemote(remote, parts.join('/'));
   };
   const children: PopupItem[] = [
-    { id: `${ref.name}:checkout`, label: current ? 'Checkout (current branch)' : 'Checkout', disabled: current, run: checkout },
-    { id: `${ref.name}:new`, label: `New Branch from '${name}'…`, run: () => handlers.newFrom(name) },
-    { id: `${ref.name}:checkout-rebase`, label: 'Checkout and Rebase onto Current (P1)', disabled: true },
-    { id: `${ref.name}:compare`, label: 'Compare with Current (P1)', disabled: true },
-    { id: `${ref.name}:diff`, label: 'Show Diff with Working Tree (P1)', disabled: true },
+    { id: `${ref.name}:checkout`, label: gitText(current ? 'checkoutCurrent' : 'checkout'), disabled: current, run: checkout },
+    { id: `${ref.name}:new`, label: gitText('newFrom').replace('{name}', name), run: () => handlers.newFrom(name) },
+    { id: `${ref.name}:checkout-rebase`, label: gitText('checkoutRebase'), disabled: true },
+    { id: `${ref.name}:compare`, label: gitText('compare'), disabled: true },
+    { id: `${ref.name}:diff`, label: gitText('diff'), disabled: true },
     { id: `${ref.name}:separator`, label: '', kind: 'separator' },
-    { id: `${ref.name}:rebase`, label: 'Rebase / Merge (P1)', disabled: true },
-    { id: `${ref.name}:update`, label: 'Update', disabled: !ref.upstream, run: () => handlers.update() },
-    { id: `${ref.name}:push`, label: 'Push…', run: () => handlers.push(local ? { remote: null, branch: name, forceWithLease: false, tags: false } : null) },
+    { id: `${ref.name}:rebase`, label: gitText('rebaseMerge'), disabled: true },
+    { id: `${ref.name}:update`, label: gitText('updateBranch'), disabled: !ref.upstream, run: () => handlers.update() },
+    { id: `${ref.name}:push`, label: gitText('push'), run: () => handlers.push(local ? { remote: null, branch: name, forceWithLease: false, tags: false } : null) },
   ];
   if (local) {
     children.push(
-      { id: `${ref.name}:rename`, label: 'Rename…', run: () => handlers.rename(name) },
-      { id: `${ref.name}:delete`, label: current ? 'Delete (current branch)' : 'Delete…', disabled: current, run: () => handlers.delete(name, false) },
+      { id: `${ref.name}:rename`, label: gitText('rename'), run: () => handlers.rename(name) },
+      { id: `${ref.name}:delete`, label: gitText(current ? 'deleteCurrent' : 'delete'), disabled: current, run: () => handlers.delete(name, false) },
     );
   }
-  return { id: ref.name, label: `${name}${ref.track ? ` · ${ref.track}` : ''}`, children };
+  return { id: ref.name, label: label ?? name, level, children };
+}
+
+export const branchFolderPrefix = 'folder:';
+/** Collapsible top-level groups (Recent, Local, Remote, Tags); expanded unless listed in the toggle set. */
+export const branchSectionPrefix = 'section:';
+/**
+ * IDEA BranchesTree: `/` prefixes become expandable folders; within a level the current
+ * branch and favorites come first, then folders, then the remaining branches.
+ */
+function branchTree(entries: { ref: Reference; name: string }[], refs: References, handlers: BranchPopupHandlers,
+  expanded: ReadonlySet<string>, toggle: (id: string) => void, scope: string, level: number): PopupItem[] {
+  const leaves: { ref: Reference; name: string }[] = [];
+  const folders = new Map<string, { ref: Reference; name: string }[]>();
+  for (const entry of entries) {
+    const slash = entry.name.indexOf('/');
+    if (slash < 0) leaves.push(entry);
+    else folders.set(entry.name.slice(0, slash), [...(folders.get(entry.name.slice(0, slash)) ?? []), { ref: entry.ref, name: entry.name.slice(slash + 1) }]);
+  }
+  const rank = (entry: { ref: Reference }) => entry.ref.name === currentName(refs) ? 0 : defaultFavorite(localName(entry.ref.name)) ? 1 : 2;
+  const pinned = leaves.filter(entry => rank(entry) < 2).sort((a, b) => rank(a) - rank(b));
+  const result = pinned.map(entry => branchItem(entry.ref, refs, handlers, entry.name, level));
+  for (const [folder, children] of [...folders].sort(([a], [b]) => a.localeCompare(b))) {
+    const id = `${branchFolderPrefix}${scope}/${folder}`;
+    result.push({ id, label: folder, level, keepOpen: true, run: () => toggle(id) });
+    if (expanded.has(id)) result.push(...branchTree(children, refs, handlers, expanded, toggle, `${scope}/${folder}`, level + 1));
+  }
+  result.push(...leaves.filter(entry => rank(entry) === 2).map(entry => branchItem(entry.ref, refs, handlers, entry.name, level)));
+  return result;
 }
 
 export interface BranchPopupHandlers {
@@ -63,32 +100,36 @@ export interface BranchPopupHandlers {
   fetch: () => void;
 }
 
-export function branchPopupItems(refs: References, handlers: BranchPopupHandlers): PopupItem[] {
+export function branchPopupItems(refs: References, handlers: BranchPopupHandlers,
+  expanded: ReadonlySet<string> = new Set(), toggle: (id: string) => void = () => {}): PopupItem[] {
   const local = refs.local.slice().sort((a, b) => a.name.localeCompare(b.name));
   const remoteGroups = Object.entries(refs.remotes).sort(([a], [b]) => a.localeCompare(b));
   const recent = local.filter(ref => ref.name === currentName(refs) || ref.track.includes('ahead') || ref.track.includes('behind')).slice(0, 5);
-  const recentIds = new Set(recent.map(ref => ref.name));
   const result: PopupItem[] = [
-    { id: 'action:new', label: 'New Branch…', run: handlers.newBranch },
-    { id: 'action:checkout-revision', label: 'Checkout Tag or Revision… (P1)', disabled: true },
+    { id: 'action:new', label: gitText('newBranch'), run: handlers.newBranch },
+    { id: 'action:checkout-revision', label: gitText('checkoutRevision'), disabled: true },
     { id: 'action:separator', label: '', kind: 'separator' },
-    { id: 'action:update', label: 'Update Project…', run: handlers.update },
-    { id: 'action:commit', label: 'Commit…', run: handlers.commit },
-    { id: 'action:push', label: 'Push…', run: () => handlers.push(null) },
-    { id: 'action:fetch', label: 'Fetch', run: handlers.fetch },
-    { id: 'heading:recent', label: 'Recent', kind: 'heading' },
-    ...recent.map(ref => branchActions(ref, refs, handlers)),
-    { id: 'heading:local', label: 'Local', kind: 'heading' },
-    ...local.filter(ref => !recentIds.has(ref.name)).map(ref => branchActions(ref, refs, handlers)),
+    { id: 'action:update', label: gitText('update'), run: handlers.update },
+    { id: 'action:commit', label: gitText('commit'), run: handlers.commit },
+    { id: 'action:push', label: gitText('push'), run: () => handlers.push(null) },
+    { id: 'action:fetch', label: gitText('fetch'), run: handlers.fetch },
   ];
-  for (const [remote, values] of remoteGroups) {
-    result.push({ id: `heading:remote:${remote}`, label: `Remote · ${remote}`, kind: 'heading' });
-    result.push(...values.slice().sort((a, b) => a.name.localeCompare(b.name)).map(ref => branchActions(ref, refs, handlers)));
-  }
-  if (refs.tags.length) {
-    result.push({ id: 'heading:tags', label: 'Tags', kind: 'heading' });
-    result.push(...refs.tags.slice().sort((a, b) => a.name.localeCompare(b.name)).map(ref => branchActions(ref, refs, handlers)));
-  }
+  // IDEA BranchesTree top-level nodes: expanded by default, folding their rows in place.
+  const section = (key: 'recent' | 'local' | 'remote' | 'tags', rows: () => PopupItem[]) => {
+    const id = `${branchSectionPrefix}${key}`;
+    result.push({ id, label: gitText(key), keepOpen: true, run: () => toggle(id) });
+    if (!expanded.has(id)) result.push(...rows());
+  };
+  if (recent.length) section('recent', () => recent.map(ref => ({ ...branchItem(ref, refs, handlers, undefined, 1), id: `recent:${ref.name}` })));
+  section('local', () => branchTree(local.map(ref => ({ ref, name: localName(ref.name) })), refs, handlers, expanded, toggle, 'local', 1));
+  if (remoteGroups.length) section('remote', () => remoteGroups.flatMap(([remote, values]) => {
+    const id = `${branchFolderPrefix}remote/${remote}`;
+    const folder: PopupItem = { id, label: remote, level: 1, keepOpen: true, run: () => toggle(id) };
+    return expanded.has(id) ? [folder, ...branchTree(values.slice().sort((a, b) => a.name.localeCompare(b.name))
+      .map(ref => ({ ref, name: remoteName(ref.name).slice(remote.length + 1) })), refs, handlers, expanded, toggle, `remote/${remote}`, 2)] : [folder];
+  }));
+  if (refs.tags.length) section('tags', () => refs.tags.slice().sort((a, b) => a.name.localeCompare(b.name))
+    .map(ref => branchItem(ref, refs, handlers, ref.name.replace(/^refs\/tags\//, ''), 1)));
   return result;
 }
 

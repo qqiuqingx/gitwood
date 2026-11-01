@@ -1,6 +1,6 @@
 import type { PopupItem } from '../../components/popup';
 import type { Commit, References } from './types';
-import { branchPopupItems, type BranchPopupHandlers } from '../git/model';
+import { branchItem, type BranchPopupHandlers } from '../git/model';
 import type { HistoryMenuMessage } from '../../i18n/history-menu';
 
 export interface UndoInfo { branches: string[]; total: number; protected: boolean; inProgress: boolean }
@@ -17,8 +17,7 @@ export function undoReason(commit: Commit, refs: References | null, info: UndoIn
 
 export function historyMenuItems(commit: Commit, refs: References | null, handlers: BranchPopupHandlers | undefined,
   parentAvailable: boolean, actions: { copy: () => void; parent: () => void }, t: (key: HistoryMenuMessage) => string, undo?: { info: UndoInfo | null; run: () => void; busy: boolean }): PopupItem[] {
-  const branchIds = new Set(refs ? [...refs.local, ...Object.values(refs.remotes).flat()].filter(ref => ref.hash === commit.hash).map(ref => ref.name) : []);
-  const branches = refs && handlers ? branchPopupItems(refs, handlers).filter(item => branchIds.has(item.id)) : [];
+  const branches = refs && handlers ? [...refs.local, ...Object.values(refs.remotes).flat()].filter(ref => ref.hash === commit.hash).map(ref => branchItem(ref, refs, handlers)) : [];
   const checkout: PopupItem[] = branches.map(item => ({ ...item.children![0], id: `checkout:${item.id}`, label: item.label, children: undefined }));
   // ops/branch.rs validates Checkout against refs/heads; arbitrary revisions are unsupported.
   checkout.push({ id: 'revision', label: t('revision').replace('{hash}', commit.hash.slice(0, 8)), disabled: true });

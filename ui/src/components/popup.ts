@@ -15,6 +15,14 @@ export interface PopupItem {
   firstGroup?: boolean;
   checked?: boolean;
   children?: readonly PopupItem[];
+  /** Tree depth for inline-expanded rows such as branch folders. */
+  level?: number;
+  /** Run without closing the popup, e.g. toggling a folder in place. */
+  keepOpen?: boolean;
+  /** Inline decoration right after the label, e.g. incoming/outgoing counts. */
+  badge?: Snippet<[id: string]>;
+  /** Right-aligned decoration before the submenu chevron. */
+  trailing?: Snippet<[id: string]>;
   run?: () => void;
 }
 
