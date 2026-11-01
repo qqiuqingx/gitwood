@@ -391,3 +391,57 @@ async fn text_filter_honors_regex_and_match_case_toggles() {
     assert_eq!(count(&prefix, false, true).await, 0);
     assert_eq!(count(&lower[..10], false, true).await, 1);
 }
+#[tokio::test]
+async fn current_branch_rows_follow_idea_highlighter_rules() {
+    let repo = Repo::new().await;
+    let author = "A <a@example.invalid>";
+    let base = commit(&repo, "A", "base", author).await;
+    let head_name = String::from_utf8(
+        repo.read(ReadOperation::RevParse, &["--abbrev-ref", "HEAD"])
+            .await,
+    )
+    .unwrap()
+    .trim()
+    .to_owned();
+    repo.git("checkout", &["-qb", "side"]).await;
+    let side = commit(&repo, "B", "side", author).await;
+    repo.git("checkout", &["-q", &head_name]).await;
+    let main = commit(&repo, "A", "main", author).await;
+    let rows = |filter: Filter| {
+        let repo = &repo;
+        async move {
+            let layout = filtered(repo, filter.clone()).await;
+            let current =
+                details::current_branch_rows(&repo.runner, &repo.options, &filter, &layout)
+                    .await
+                    .unwrap();
+            (0..current.len())
+                .map(|row| {
+                    (
+                        layout.graph().hash(CommitId(row as u32)).unwrap(),
+                        current[row],
+                    )
+                })
+                .collect::<std::collections::HashMap<_, _>>()
+        }
+    };
+    let all = rows(Filter::default()).await;
+    assert_eq!(all.len(), 3);
+    assert!(all[&base] && all[&main] && !all[&side]);
+    let other = rows(Filter {
+        branch: Some("refs/heads/side".into()),
+        ..Filter::default()
+    })
+    .await;
+    assert!(other[&base] && !other[&side]);
+    for branch in ["HEAD".to_owned(), format!("refs/heads/{head_name}")] {
+        let only_current = rows(Filter {
+            branch: Some(branch),
+            ..Filter::default()
+        })
+        .await;
+        assert!(only_current.is_empty());
+    }
+    repo.git("checkout", &["-q", "--detach"]).await;
+    assert!(rows(Filter::default()).await.is_empty());
+}

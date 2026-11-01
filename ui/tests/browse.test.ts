@@ -33,7 +33,7 @@ describe('browse filters and regional dates', () => {
 describe('graph drawing instructions', () => {
   const row = (index: number): HistoryRow => ({ index, column: 0, color: -4,
     segments: [[0, 0, 1, -4, index === 0 ? 1 : -1, true]],
-    commit: { hash: `hash${index}`, parents: [], author: '', email: '', author_time: 0, commit_time: 0, subject: '', message: '', refs: '' } });
+    commit: { hash: `hash${index}`, parents: [], author: '', email: '', author_time: 0, commit_time: 0, subject: '', message: '', refs: '' }, current: false });
   it('keeps half-row endpoints identical across viewports and draws nodes after edges', () => {
     const a = row(0), b = row(1); b.segments[0][1] = 1; b.segments[0][2] = 0;
     const commands = graphCommands([a, b], 7, 24, 60, 'hash0');

@@ -96,6 +96,44 @@ pub async fn layout(
     collapse_graph(&graph, &selected)
 }
 
+/// Rows contained in the current branch, for IDEA's CurrentBranchHighlighter.
+/// Empty (no highlighting) when HEAD is detached or unborn, or when the filter
+/// already shows only HEAD or the current branch (CurrentBranchHighlighter.update).
+pub async fn current_branch_rows(
+    runner: &GitRunner,
+    options: &RunOptions,
+    filter: &Filter,
+    layout: &GraphLayout,
+) -> Result<Vec<bool>, GitError> {
+    let branch = crate::repo::status::read(runner, options).await?.branch;
+    let Some(head) = branch
+        .head
+        .filter(|head| head != "(detached)" && branch.oid.as_deref() != Some("(initial)"))
+    else {
+        return Ok(Vec::new());
+    };
+    if let Some(filtered) = &filter.branch {
+        if filtered == "HEAD" || *filtered == format!("refs/heads/{head}") {
+            return Ok(Vec::new());
+        }
+    }
+    let output = runner
+        .run(
+            ReadCommand::new(ReadOperation::Log).args(["--format=%H", "HEAD", "--"]),
+            options,
+        )
+        .await?;
+    let reachable = hashes(&output.stdout);
+    Ok((0..layout.graph().len())
+        .map(|row| {
+            layout
+                .graph()
+                .hash(CommitId(row as u32))
+                .is_some_and(|hash| reachable.contains(&hash))
+        })
+        .collect())
+}
+
 async fn log_arguments(
     runner: &GitRunner,
     options: &RunOptions,

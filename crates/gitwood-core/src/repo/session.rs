@@ -33,6 +33,8 @@ pub struct Lease {
 #[derive(Default)]
 pub(super) struct Data {
     layout: Option<GraphLayout>,
+    /// Per layout row: reachable from the current branch (empty = no highlight).
+    current_branch: Vec<bool>,
     layout_generation: Option<u64>,
     pub(super) status: Option<status::Status>,
     status_trees: [Option<super::file_tree::FileTree>; 2],
@@ -61,6 +63,8 @@ pub struct Rows {
     pub nodes: Vec<(u32, u32, i32, u32, u32)>,
     pub segments: Vec<(u32, u32, u32, i32, i8, bool)>,
     pub commits: Vec<Commit>,
+    /// Parallel to `nodes`: commit is contained in the current branch.
+    pub current: Vec<bool>,
 }
 impl Sessions {
     pub fn generation(&self) -> u64 {
@@ -264,11 +268,14 @@ impl Lease {
     }
     pub async fn layout(&self, filter: &Filter) -> Result<LayoutInfo, GitError> {
         let layout = details::layout(&self.runner, &self.options, filter).await?;
+        let current_branch =
+            details::current_branch_rows(&self.runner, &self.options, filter, &layout).await?;
         let total = layout.graph().len();
         let mut d = self.data.lock().await;
         self.ensure_current()?;
         d.layout_generation = Some(self.generation);
         d.layout = Some(layout);
+        d.current_branch = current_branch;
         d.cache.clear();
         Ok(LayoutInfo {
             generation: self.generation,
@@ -295,6 +302,16 @@ impl Lease {
             .rows
             .iter()
             .filter_map(|row| layout.graph().hash(CommitId(row.commit.0)))
+            .collect();
+        let current = visible
+            .rows
+            .iter()
+            .map(|r| {
+                d.current_branch
+                    .get(r.commit.0 as usize)
+                    .copied()
+                    .unwrap_or(false)
+            })
             .collect();
         let nodes = visible
             .rows
@@ -347,6 +364,7 @@ impl Lease {
             nodes,
             segments,
             commits,
+            current,
         })
     }
     pub async fn position(&self, hash: &str) -> Result<Option<u32>, GitError> {

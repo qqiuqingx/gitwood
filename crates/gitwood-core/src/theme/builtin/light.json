@@ -79,6 +79,7 @@
     "label.branch.remote": "#3574F0",
     "label.tag": "#DF9303",
     "label.head": "#3574F0",
+    "log.current.branch.bg": "#EDF3FF",
     "status.added": "#067D17",
     "status.modified": "#0033B3",
     "status.deleted": "#6C707E",

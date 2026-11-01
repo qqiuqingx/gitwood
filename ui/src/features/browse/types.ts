@@ -8,8 +8,8 @@ export interface Commit { hash: string; parents: string[]; author: string; email
 export interface FileChange { status: string; path: RepoPath; original: RepoPath | null }
 export interface FilePage { total: number; start: number; files: FileChange[] }
 export type Segment = [edge: number, from: number, to: number, color: number, direction: number, dotted: boolean];
-export interface Rows { generation: number; nodes: [row: number, column: number, color: number, start: number, end: number][]; segments: Segment[]; commits: Commit[] }
-export interface HistoryRow { index: number; column: number; color: number; segments: Segment[]; commit: Commit }
+export interface Rows { generation: number; nodes: [row: number, column: number, color: number, start: number, end: number][]; segments: Segment[]; commits: Commit[]; current: boolean[] }
+export interface HistoryRow { index: number; column: number; color: number; segments: Segment[]; commit: Commit; current: boolean }
 export interface Filter { text: string | null; branch: string | null; author: string | null; since: string | null; until: string | null; path: RepoPath | null; regex: boolean; match_case: boolean }
 export interface FilterInput { text: string; branch: string; author: string; since: string; until: string; path: string; regex: boolean; matchCase: boolean }
 export interface Opened { generation: number; repository: { root: string; linked: boolean } }

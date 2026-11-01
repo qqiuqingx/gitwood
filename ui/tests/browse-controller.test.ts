@@ -5,7 +5,7 @@ import { RepositoryBrowser } from '../src/features/browse/browser.svelte';
 import type { Rows } from '../src/features/browse/types';
 function deferred<T>() { let resolve!: (value: T) => void; const promise = new Promise<T>(done => { resolve = done; }); return { promise, resolve }; }
 const commit = (hash: string) => ({ hash, parents: [], author: '', email: '', author_time: 0, commit_time: 0, subject: hash, message: hash, refs: '' });
-const rows = (generation: number, start: number, hash: string): Rows => ({ generation, nodes: [[start, 0, 0, 0, 0]], segments: [], commits: [commit(hash)] });
+const rows = (generation: number, start: number, hash: string): Rows => ({ generation, nodes: [[start, 0, 0, 0, 0]], segments: [], commits: [commit(hash)], current: [false] });
 beforeEach(() => { ipc.mockReset(); });
 it('navigates to an uncached parent via history_position, loads the row and selects its hash', async () => {
   const browser = new RepositoryBrowser(); browser.project = { root: '/repo', linked: false }; browser.generation = 4; browser.total = 300;
@@ -28,14 +28,14 @@ it('does not navigate when a parent is filtered out or an old graph responds aft
 it('a late parent position does not override a newer row selection', async () => {
   const browser = new RepositoryBrowser(); browser.project = { root: '/repo', linked: false }; browser.generation = 4; browser.total = 300;
   const pending = deferred<number | null>();
-  browser.rows = new Map([[10, { index: 10, column: 0, color: 0, segments: [], commit: commit('newer') }]]);
+  browser.rows = new Map([[10, { index: 10, column: 0, color: 0, segments: [], commit: commit('newer'), current: false }]]);
   ipc.mockImplementation((name: string) => name === 'history_position' ? pending.promise : Promise.resolve(commit('newer')));
   const navigation = browser.goToCommit('parent'); await browser.selectIndex(10); pending.resolve(210); await navigation;
   expect(browser.selected).toBe('newer'); expect(browser.activeIndex).toBe(10); expect(browser.scrollTop).toBe(0);
 });
 it('a late selected-commit detail cannot replace a later selection', async () => {
   const browser = new RepositoryBrowser(); browser.project = { root: '/repo', linked: false }; browser.generation = 4; browser.total = 2;
-  browser.rows = new Map([0, 1].map(index => [index, { index, column: 0, color: 0, segments: [], commit: commit(String(index)) }]));
+  browser.rows = new Map([0, 1].map(index => [index, { index, column: 0, color: 0, segments: [], commit: commit(String(index)), current: false }]));
   const first = deferred<ReturnType<typeof commit>>();
   ipc.mockImplementation((name: string, args: { hash: string }) => name === 'commit_details' ? args.hash === '0' ? first.promise : Promise.resolve(commit('1')) : Promise.reject(name));
   const old = browser.selectIndex(0); await browser.selectIndex(1); first.resolve(commit('0')); await old;

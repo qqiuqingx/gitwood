@@ -163,7 +163,7 @@ export class RepositoryBrowser {
         const result = await invoke<Rows>('history_rows', { generation, start: offset, end: limit });
         if (!this.current(project, generation) || !this.pages.accepts(ticket) || result.generation !== generation) return;
         const rows = new Map(this.rows);
-        result.nodes.forEach(([index, column, color, from, to], i) => rows.set(index, { index, column, color, segments: result.segments.slice(from, to), commit: result.commits[i] }));
+        result.nodes.forEach(([index, column, color, from, to], i) => rows.set(index, { index, column, color, segments: result.segments.slice(from, to), commit: result.commits[i], current: result.current[i] ?? false }));
         // Bound retained metadata; all permanent graph information remains in Rust.
         for (const index of rows.keys()) if (index < start - 200 || index > end + 200) rows.delete(index);
         this.rows = rows;
@@ -201,7 +201,7 @@ export class RepositoryBrowser {
         if (!this.selection.accepts(ticket) || !this.current(project, generation)) return;
         const node = result.nodes[0], commit = result.commits[0];
         if (node && commit) {
-          row = { index: node[0], column: node[1], color: node[2], segments: result.segments.slice(node[3], node[4]), commit };
+          row = { index: node[0], column: node[1], color: node[2], segments: result.segments.slice(node[3], node[4]), commit, current: result.current[0] ?? false };
           this.rows = new Map([...this.rows, [index, row]]);
         }
       }
