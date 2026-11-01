@@ -2,6 +2,7 @@
   import { invoke } from '@tauri-apps/api/core';
   import Splitter from '../../components/Splitter.svelte';
   import PagedFileTree from './PagedFileTree.svelte';
+  import { projectName } from '../projects/avatar';
   import { detailsDateTime, refLabelsByHash } from './model';
   import type { RepositoryBrowser } from './browser.svelte';
   import { browseText as t } from '../../i18n/browse';
@@ -23,7 +24,7 @@
 </script>
 <Splitter axis="y" {label} minFirst={90} minSecond={90} bind:ratio>
   {#snippet first()}
-    <PagedFileTree onselect={row => { if (row.path) browser.previewFile = { path: row.path, staged: row.staged, unstaged: row.unstaged, hash: browser.selected }; }} hash={browser.selected} generation={browser.generation} onerror={error => browser.report(error)} />
+    <PagedFileTree onselect={row => { if (row.path) browser.previewFile = { path: row.path, staged: row.staged, unstaged: row.unstaged, hash: browser.selected }; }} hash={browser.selected} root={browser.project ? projectName(browser.project.root) : ''} generation={browser.generation} onerror={error => browser.report(error)} />
   {/snippet}
   {#snippet second()}
     <div class="details">

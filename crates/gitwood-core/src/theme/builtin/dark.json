@@ -11,6 +11,8 @@
     "text.secondary": "#868A91",
     "text.header": "#DFE1E5",
     "text.header.secondary": "#868A91",
+    "text.header.outgoing": "#5FAD65",
+    "text.header.incoming": "#548AF7",
     "text.disabled": "#6F737A",
     "accent": "#3574F0",
     "selection.bg": "#2E436E",

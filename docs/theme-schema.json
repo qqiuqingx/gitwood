@@ -60,6 +60,12 @@
         "text.header.secondary": {
           "$ref": "#/$defs/color"
         },
+        "text.header.outgoing": {
+          "$ref": "#/$defs/color"
+        },
+        "text.header.incoming": {
+          "$ref": "#/$defs/color"
+        },
         "text.disabled": {
           "$ref": "#/$defs/color"
         },

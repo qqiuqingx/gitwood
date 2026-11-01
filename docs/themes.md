@@ -63,6 +63,8 @@ JSON Schema 为编辑器提供每个变量的类型和补全。下表列出首�
 | `text.secondary` | `#6C707E` |
 | `text.header` | `#EBECF0` |
 | `text.header.secondary` | `#A8ADBD` |
+| `text.header.outgoing` | `#5FAD65` |
+| `text.header.incoming` | `#548AF7` |
 | `text.disabled` | `#A8ADBD` |
 | `accent` | `#3574F0` |
 | `selection.bg` | `#D4E2FF` |

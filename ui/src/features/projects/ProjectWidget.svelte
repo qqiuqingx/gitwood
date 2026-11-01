@@ -20,7 +20,7 @@
 <button bind:this={anchor} aria-label={t('projects')} aria-haspopup="dialog" aria-expanded={shown}
   disabled={browser.opening || busy} onclick={() => { shown = !shown; }}>
   {#if browser.project}<ProjectAvatar path={browser.project.root} name={projectName(browser.project.root)} />{/if}
-  <strong>{browser.project ? projectName(browser.project.root) : t('open')}</strong><span aria-hidden="true">⌄</span>
+  <strong>{browser.project ? projectName(browser.project.root) : t('open')}</strong><svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><path d="m4 6 4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.2" /></svg>
 </button>
 {#snippet projectIcon(id: string)}{@const avatar = avatars.get(id)}{#if avatar}<ProjectAvatar {...avatar} />{/if}{/snippet}
 {#if shown && anchor}<div class="project-popup"><Popup items={items.map(item => item.avatar ? { ...item, icon: projectIcon } : item)} label={t('projects')} {anchor} filter
@@ -30,5 +30,6 @@
     background: none; color: inherit; padding: var(--space-panel-y) var(--space-inline); }
   button:hover { background: var(--toolbar-hover-bg); }
   strong { font-weight: var(--font-weight-heading); }
+  svg { flex: none; color: var(--text-header-secondary); }
   .project-popup { --popup-height: calc(var(--font-ui-size) * 54); --popup-width: calc(var(--font-ui-size) * 28); }
 </style>

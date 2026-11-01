@@ -64,7 +64,7 @@
       {#if node.hasChildren}
         <button type="button" tabindex="-1" disabled={node.disabled} aria-label={node.label} aria-expanded={node.expanded}
           onclick={(event) => { event.stopPropagation(); list.focus(); list.selectIndex(index); expand(node.id, !node.expanded); }}
-          ondblclick={(event) => event.stopPropagation()}>{node.expanded ? '▾' : '▸'}</button>
+          ondblclick={(event) => event.stopPropagation()}><svg class:expanded={node.expanded} viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><path d="m6 4 4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.2" /></svg></button>
       {:else}<span class="spacer"></span>{/if}
       {#if content}{@render content(node, query)}{:else}<Highlight text={node.label} {query} />{/if}
     </span>
@@ -73,5 +73,6 @@
 <style>
   .node { display: flex; align-items: center; gap: var(--space-inline); min-width: 0; }
   button, .spacer { flex: none; width: var(--tree-disclosure-size, var(--space-panel-x)); }
-  button { border: 0; padding: 0; background: none; color: inherit; font: inherit; cursor: pointer; }
+  button { display: inline-flex; align-items: center; justify-content: center; border: 0; padding: 0; background: none; color: var(--text-secondary); font: inherit; cursor: pointer; }
+  svg.expanded { transform: rotate(90deg); }
 </style>

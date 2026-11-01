@@ -61,7 +61,8 @@
       oncontextmenu={(event, _, index) => openContext(event, index)}>
       {#snippet row(_, index, query)}
         {@const commit = browser.rows.get(index)?.commit}
-        <div class="commit-row" style:grid-template-columns={`${graphWidth}px minmax(0,1fr) 100px 130px`}>
+        <!-- IDEA MergeCommitsHighlighter: dimmed merge text, never on selected rows. -->
+        <div class="commit-row" class:merge={(commit?.parents.length ?? 0) > 1 && !selected.has(commit?.hash ?? '')} style:grid-template-columns={`${graphWidth}px minmax(0,1fr) 100px 130px`}>
           <span></span><span class="subject">
             <span class="text"><Highlight text={commit?.subject ?? t('loading')} {query} /></span>
             {#if commit && refsByHash.get(commit.hash)?.length}{@const labels = refsByHash.get(commit.hash) ?? []}<span class="refs" title={labels.map(ref => ref.name).join(', ')}>{#each labels as ref, i}<svg class="tag" class:stacked={i > 0} style:color={`var(--label-${ref.kind})`} viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M2 3v4.6l6.4 6.4 5.6-5.6L7.6 2H3a1 1 0 0 0-1 1Z" fill="none" stroke="currentColor" /><circle cx="5" cy="5" r="1" fill="currentColor" /></svg>{/each}<span class="ref-name">{labels.map(ref => ref.name).join(', ')}</span></span>{/if}
@@ -81,6 +82,7 @@
   .list { position: relative; flex: 1; min-height: 0; }
   .commit-row { display: grid; align-items: center; gap: var(--space-inline); width: 100%; min-width: 0; }
   .commit-row { margin-inline-start: calc(-1 * var(--space-inline)); }
+  .merge .text, .merge .secondary { color: var(--text-disabled); }
   .subject { display: flex; align-items: center; gap: calc(var(--space-inline) / 2); min-width: 0; overflow: hidden; }
   .text { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .refs { flex: 0 1 auto; display: inline-flex; align-items: center; min-width: calc(var(--font-ui-size) * 3); max-width: 40%; color: var(--text-secondary); }

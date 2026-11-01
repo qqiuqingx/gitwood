@@ -46,6 +46,8 @@
 
   const current = $derived(browser.refs?.head.head ?? 'HEAD');
   const refs = $derived(browser.refs);
+  const ahead = $derived(refs?.head.ahead ?? 0);
+  const behind = $derived(refs?.head.behind ?? 0);
   const expected = () => browser.status?.fingerprint ?? '';
   const displayError = $derived(error ? remoteErrorText(error) : null);
   const newTarget = $derived(isNewPushTarget(refs, pushOptions));
@@ -162,7 +164,14 @@
   function outcomeStash(value: RemoteOutcome | null) { return value && 'stash' in value ? value.stash ?? null : null; }
 </script>
 
-<button class="branch-control" bind:this={branchAnchor} aria-expanded={popup} disabled={!browser.project} onclick={() => { popup = !popup; }}>{current} ↑{refs?.head.ahead ?? 0} ↓{refs?.head.behind ?? 0}⌄</button>
+<button class="branch-control" bind:this={branchAnchor} aria-expanded={popup} disabled={!browser.project}
+  title={ahead || behind ? `${current} ↑${ahead} ↓${behind}` : current} onclick={() => { popup = !popup; }}>
+  <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor"><circle cx="4.5" cy="3.5" r="1.5" /><circle cx="4.5" cy="12.5" r="1.5" /><circle cx="11.5" cy="4.5" r="1.5" /><path d="M4.5 5v6M11.5 6c0 3-7 2.5-7 5" /></svg>
+  <span class="name">{current}</span>
+  {#if ahead}<svg class="outgoing" viewBox="0 0 16 16" width="12" height="12" aria-label={`↑${ahead}`} fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4 12 12 4M6 4h6v6" /></svg>{/if}
+  {#if behind}<svg class="incoming" viewBox="0 0 16 16" width="12" height="12" aria-label={`↓${behind}`} fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 4 4 12M10 12H4V6" /></svg>{/if}
+  <svg class="chevron" viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><path d="m4 6 4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.2" /></svg>
+</button>
 <span class="remote-actions">
   <button title="Update Project" disabled={!browser.project || busy} onclick={() => handlers.update()}>↓</button>
   <button title="Push" disabled={!browser.project || busy} onclick={() => openPush(null)}>↑</button>
@@ -242,6 +251,10 @@
 <style>
   .branch-control,.remote-actions button { border: 0; background: none; color: inherit; font: inherit; padding: var(--space-panel-y) var(--space-inline); }
   .branch-control:hover,.remote-actions button:hover { background: var(--toolbar-hover-bg); }
+  .branch-control { display: inline-flex; align-items: center; gap: var(--space-inline); }
+  .branch-control > svg { flex: none; color: var(--text-header-secondary); }
+  .branch-control .outgoing { color: var(--text-header-outgoing); }
+  .branch-control .incoming { color: var(--text-header-incoming); }
   .remote-actions { display: inline-flex; gap: 2px; margin-inline-start: auto; }
   .workflow-dialog { width: min(760px, 88vw); max-height: 86vh; overflow: auto; color: var(--text-primary); background: var(--popup-bg); border: var(--border-width) solid var(--popup-border); padding: var(--space-panel-x); }
   .workflow-dialog::backdrop { background: #0008; }
