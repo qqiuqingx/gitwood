@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { onMount, untrack } from 'svelte';
   import { listenWindowEvent } from '../../windowEvents';
   import { invoke } from '@tauri-apps/api/core';
   import Popup from '../../components/Popup.svelte';
@@ -104,16 +104,30 @@
     pushOptions = options ?? defaultPushOptions(browser.refs!);
     preview = null; previewSelection = ''; editingTarget = false; dialog = 'push'; outcome = null; error = null; void loadPreview();
   }
+  // Generation the shown outgoing commits were requested for; every history refresh bumps it.
+  let previewGeneration = 0;
   async function loadPreview(startAt = 0) {
     if (!browser.project || !refs) return;
-    previewLoading = true; error = null;
+    const generation = browser.generation;
+    previewGeneration = generation;
+    previewLoading = true;
     try {
-      const value = await invoke<PushPreview>('push_preview', { generation: browser.generation, options: pushOptions, start: startAt, limit: 200 });
+      const value = await invoke<PushPreview>('push_preview', { generation, options: pushOptions, start: startAt, limit: 200 });
+      // A newer refresh (e.g. the watcher after a push) superseded this request; the effect below reloads.
+      if (generation !== browser.generation) return;
       preview = startAt === 0 ? value : { ...value, commits: [...(preview?.commits ?? []), ...value.commits], subjects: [...(preview?.subjects ?? []), ...value.subjects] };
       previewSelection ||= value.commits[0] ?? '';
-    } catch (cause) { error = cause as RemoteError; }
-    finally { previewLoading = false; }
+    } catch (cause) {
+      if (generation === browser.generation && !(cause as RemoteError).detail?.includes('repository.stale')) error = cause as RemoteError;
+    } finally { previewLoading = false; }
   }
+  // Reload outgoing commits whenever the repository refreshes while Push is open and idle.
+  $effect(() => {
+    const generation = browser.generation;
+    if (dialog === 'push' && !busy && !editingTarget && generation !== previewGeneration) {
+      untrack(() => { preview = null; previewSelection = ''; void loadPreview(); });
+    }
+  });
   async function write(command: string, args: Record<string, unknown>) {
     if (!browser.project || busy) return;
     busy = true; progress = ''; error = null; outcome = null;
@@ -157,11 +171,10 @@
   export function push() { openPush(null); }
   async function submitUpdate() { await write('update_project', updateRequest(updateStrategy)); }
   async function submitPush(force = false) {
+    // The dialog stays open with its result; the generation effect reloads the outgoing commits.
     await write('push', { options: { ...pushOptions, forceWithLease: force } });
-    // Keep the dialog and its result message, reloading the commits that are still outgoing.
-    if (dialog === 'push' && !error) { preview = null; previewSelection = ''; void loadPreview(); }
   }
-  function applyTarget() { editingTarget = false; preview = null; previewSelection = ''; void loadPreview(); }
+  function applyTarget() { editingTarget = false; error = null; preview = null; previewSelection = ''; void loadPreview(); }
   export async function commitAndPush() {
     if (!browser.commit.message.trim() || !browser.commit.count) return;
     busy = true; progress = ''; error = null; result = null;
