@@ -158,9 +158,8 @@
   async function submitUpdate() { await write('update_project', updateRequest(updateStrategy)); }
   async function submitPush(force = false) {
     await write('push', { options: { ...pushOptions, forceWithLease: force } });
-    // IDEA closes the Push dialog once the push succeeds; otherwise reload what is still outgoing.
-    if (outcome?.kind === 'push' && outcome.success) { dialog = null; outcome = null; }
-    else if (dialog === 'push') { preview = null; previewSelection = ''; void loadPreview(); }
+    // Keep the dialog and its result message, reloading the commits that are still outgoing.
+    if (dialog === 'push' && !error) { preview = null; previewSelection = ''; void loadPreview(); }
   }
   function applyTarget() { editingTarget = false; preview = null; previewSelection = ''; void loadPreview(); }
   export async function commitAndPush() {
