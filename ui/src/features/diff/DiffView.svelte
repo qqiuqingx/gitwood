@@ -12,7 +12,7 @@
   import { diffDecorations, editorExtensions, linePosition, lineBoundary, inclusionGutter, rollbackGutter } from './editor';
   import type { Content, DiffResult, Side } from './types';
 
-  let { left, right, result, fileKey = '', included = [], onblock, onrevert, disabled = false }: { included?: readonly number[]; onblock?: (index: number) => void; onrevert?: (index: number) => void; disabled?: boolean; fileKey?: string; left: string | Content; right: string | Content; result: DiffResult } = $props();
+  let { left, right, result, fileKey = '', included = [], onblock, onrevert, disabled = false, ratio = $bindable(0.5) }: { included?: readonly number[]; onblock?: (index: number) => void; onrevert?: (index: number) => void; disabled?: boolean; fileKey?: string; left: string | Content; right: string | Content; result: DiffResult; ratio?: number } = $props();
   function content(value: string | Content): Content {
     return typeof value === 'string' ? { kind: 'text', text: value, byteLen: new TextEncoder().encode(value).length,
       empty: !value.length, missingFinalNewline: !!value.length && !value.endsWith('\n') } : value;
@@ -21,7 +21,6 @@
   const rightContent = $derived(content(right));
   let mounted = $state(false);
   let leftHost: HTMLDivElement; let rightHost: HTMLDivElement; let middle: HTMLDivElement; let host: HTMLDivElement;
-  let ratio = $state(0.5);
   let selected = $state(-1);
   let bands = $state<{ index: number; kind: string; geometry: Connector }[]>([]);
   let middleWidth = $state(1); let middleHeight = $state(1);

@@ -64,6 +64,9 @@ pub struct Layout {
     pub ratios: Ratios,
     pub commit_visible: bool,
     pub log_visible: bool,
+    /// Commit panel "Group by Directory" and file preview toggles.
+    pub commit_flat: bool,
+    pub commit_preview: bool,
 }
 impl Default for Layout {
     fn default() -> Self {
@@ -71,6 +74,8 @@ impl Default for Layout {
             ratios: Ratios::default(),
             commit_visible: true,
             log_visible: true,
+            commit_flat: true,
+            commit_preview: true,
         }
     }
 }
@@ -306,9 +311,12 @@ mod tests {
             layout: Layout {
                 commit_visible: false,
                 log_visible: false,
+                commit_flat: false,
+                commit_preview: false,
                 ratios: Ratios {
                     commit_diff: 0.37,
                     workspace_log: 0.63,
+                    diff_versions: 0.42,
                     ..Ratios::default()
                 },
             },

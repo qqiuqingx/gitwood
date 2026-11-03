@@ -304,6 +304,7 @@ async fn commit_and_push_keeps_two_results_and_does_not_push_failed_commit() {
             &token(&a).await,
             &options(),
             None,
+            None,
         )
         .await
         .is_err());
@@ -316,7 +317,15 @@ async fn commit_and_push_keeps_two_results_and_does_not_push_failed_commit() {
         hunks: vec![],
     };
     let result = lease
-        .commit_and_push(&changes, "local", false, &token(&a).await, &options(), None)
+        .commit_and_push(
+            &changes,
+            "local",
+            false,
+            &token(&a).await,
+            &options(),
+            None,
+            None,
+        )
         .await
         .unwrap();
     assert!(matches!(result.commit, ResultState::Committed { .. }));

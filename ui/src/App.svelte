@@ -14,6 +14,8 @@
   import Information from './features/browse/Information.svelte';
   import ErrorDialog from './features/browse/ErrorDialog.svelte';
   import GitWorkflow from './features/git/GitWorkflow.svelte';
+  import CredentialDialog from './features/git/CredentialDialog.svelte';
+  import { withoutCredential, type CredentialKey, type CredentialRequest } from './features/git/credential';
   import ProjectWidget from './features/projects/ProjectWidget.svelte';
   import OpenProjectDialog from './features/projects/OpenProjectDialog.svelte';
   import { ProjectOpening } from './features/projects/opening.svelte';
@@ -23,6 +25,19 @@
   const projects = new ProjectOpening(browser);
   let workflow = $state<GitWorkflow>();
   let browseReady = $state(false);
+  // Waiting prompts of this window, oldest first. Rust closes each one when it is answered
+  // or its operation ends, so a dialog never outlives the prompt it belongs to.
+  let credentials = $state<CredentialRequest[]>([]);
+  async function answerCredential(answer: string | null) {
+    const request = credentials[0];
+    if (!request) return;
+    credentials = withoutCredential(credentials, request);
+    const { generation, operation, requestId } = request;
+    try { await invoke('answer_credential', { generation, operation, requestId, answer }); }
+    catch {
+      // The operation already ended (cancelled or timed out); its own error path reports it.
+    }
+  }
   async function chooseRepository() {
     if (!isTauri() || browser.opening || projects.busy || projects.pending) return;
     try {
@@ -32,7 +47,7 @@
   }
   import Splitter from './components/Splitter.svelte';
   import { detectLocale, translate } from './i18n';
-  import { defaultLayout, type Layout } from './layout/state';
+  import { defaultLayout, layoutRequest, type Layout } from './layout/state';
   import { applyTheme, effectiveTheme, type Theme, type ThemeChoice, type ThemeError } from './theme';
   import { appearance } from './theme/appearance.svelte';
 
@@ -48,15 +63,15 @@
   let settingsError = $state('');
   let closing = $state(false);
   let themeErrors = $state<ThemeError[]>([]);
-  let lastRatios = '';
+  let lastLayout = '';
   let pendingSave = Promise.resolve();
 
   $effect(() => {
-    const ratios = JSON.stringify(layout.ratios);
-    if (!ready || closing || !isTauri() || ratios === lastRatios) return;
-    lastRatios = ratios;
+    const request = JSON.stringify(layoutRequest(layout));
+    if (!ready || closing || !isTauri() || request === lastLayout) return;
+    lastLayout = request;
     // Send each UI change immediately; Rust debounces disk writes and flushes on exit.
-    pendingSave = pendingSave.then(() => invoke('save_layout', { ratios: JSON.parse(ratios) }))
+    pendingSave = pendingSave.then(() => invoke('save_layout', { layout: JSON.parse(request) }))
       .then(() => {}).catch((error) => { settingsError = String(error); });
   });
 
@@ -87,7 +102,8 @@
     system.addEventListener('change', systemChanged);
     async function initialize() {
       unlisten = await listenWindowEvent<Settings>('preferences-changed', ({ payload }) => {
-        // Do not replace current ratios with a backend snapshot while dragging.
+        // Do not replace current ratios with a backend snapshot while dragging, and keep the
+        // Commit view toggles: they are written by this window and need no echo.
         layout.commitVisible = payload.layout.commitVisible;
         layout.logVisible = payload.layout.logVisible;
         choice = payload.theme;
@@ -99,8 +115,8 @@
       unlistenExit = await listenWindowEvent('save-before-exit', () => {
         if (closing) return;
         closing = true;
-        const ratios = ready ? JSON.parse(JSON.stringify(layout.ratios)) : null;
-        void pendingSave.then(() => invoke('finish_exit', { ratios })).catch((error) => {
+        const snapshot = ready ? JSON.parse(JSON.stringify(layoutRequest(layout))) : null;
+        void pendingSave.then(() => invoke('finish_exit', { layout: snapshot })).catch((error) => {
           closing = false;
           settingsError = String(error);
         });
@@ -112,7 +128,7 @@
       layout = response.settings.layout;
       choice = response.settings.theme;
       settingsError = response.error ?? '';
-      lastRatios = JSON.stringify(layout.ratios);
+      lastLayout = JSON.stringify(layoutRequest(layout));
       ready = true;
       await refreshTheme();
       version = await invoke<string>('app_version');
@@ -137,6 +153,15 @@
         else if (payload === 'push-project') workflow?.push();
       });
       if (disposed) { menu(); return; } unlisteners.push(menu);
+      const credential = await listenWindowEvent<CredentialRequest>('credential_request', ({ payload }) => {
+        if (disposed || payload.generation !== browser.generation) return;
+        credentials = [...credentials, payload];
+      });
+      if (disposed) { credential(); return; } unlisteners.push(credential);
+      const closed = await listenWindowEvent<CredentialKey>('credential_closed', ({ payload }) => {
+        credentials = withoutCredential(credentials, payload);
+      });
+      if (disposed) { closed(); return; } unlisteners.push(closed);
       await browser.recentProjects();
       if (disposed) return;
       const initial = await invoke<string | null>('initial_repository');
@@ -162,8 +187,8 @@
       <div class="panes"><Splitter axis="y" label={t('workspaceLog')} minFirst={240} minSecond={240} bind:ratio={layout.ratios.workspaceLog} secondVisible={layout.logVisible}>
         {#snippet first()}
           <Splitter label={t('commitDiff')} minFirst={220} minSecond={420} bind:ratio={layout.ratios.commitDiff} firstVisible={layout.commitVisible}>
-            {#snippet first()}<CommitPanel {browser} refresh={() => { void browser.refresh({ status: true, refs: false, history: false }); }} commitPush={() => workflow?.commitAndPush()} />{/snippet}
-            {#snippet second()}<Preview {browser} />{/snippet}
+            {#snippet first()}<CommitPanel {browser} bind:flat={layout.commitFlat} bind:preview={layout.commitPreview} refresh={() => { void browser.refresh({ status: true, refs: false, history: false }); }} commitPush={() => workflow?.commitAndPush()} />{/snippet}
+            {#snippet second()}<Preview {browser} bind:ratio={layout.ratios.diffVersions} />{/snippet}
           </Splitter>
         {/snippet}
         {#snippet second()}
@@ -192,6 +217,7 @@
   {/if}
   {#if browser.commit.result?.kind === 'recovery'}<RecoveryDialog result={browser.commit.result} close={()=>{browser.commit.result=null;}} />{/if}
 {#if browser.error}<ErrorDialog error={browser.error} projectOpen={!!browser.project} close={() => { browser.error = null; }} />{/if}
+<CredentialDialog request={credentials[0] ?? null} answer={value => { void answerCredential(value); }} />
 {#if projects.pending}<OpenProjectDialog path={projects.pending} choose={target => { void projects.choose(target); }} cancel={() => projects.cancel()} />{/if}
 </main>
 <style>

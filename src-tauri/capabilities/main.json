@@ -55,6 +55,7 @@
     "allow-abort-update",
     "allow-push",
     "allow-push-preview",
-    "allow-commit-and-push"
+    "allow-commit-and-push",
+    "allow-answer-credential"
   ]
 }

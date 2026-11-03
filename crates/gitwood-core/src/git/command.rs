@@ -1,5 +1,5 @@
-use super::{CancellationToken, GitError};
-use std::{collections::BTreeMap, ffi::OsString, path::PathBuf, time::Duration};
+use super::{askpass::Askpass, CancellationToken, GitError};
+use std::{collections::BTreeMap, ffi::OsString, path::PathBuf, sync::Arc, time::Duration};
 
 /// Local, non-networking operations only. Aliases, config mutation and remote commands
 /// cannot be represented as a background read.
@@ -66,6 +66,10 @@ impl ReadCommand {
     }
 }
 impl WriteCommand {
+    /// Commands that contact a remote and may need credential prompts.
+    pub(super) fn is_transport(&self) -> bool {
+        self.name == "fetch" || self.name == "push"
+    }
     pub fn new(name: impl Into<OsString>) -> Self {
         Self {
             name: name.into(),
@@ -238,6 +242,9 @@ pub struct RunOptions {
     pub cancellation: CancellationToken,
     pub heartbeat_interval: std::time::Duration,
     pub progress: Option<tokio::sync::mpsc::UnboundedSender<String>>,
+    /// Answers Git/SSH credential prompts in the project window. The runner hands it only
+    /// to `fetch` and `push`; local commands run with the same options never see it.
+    pub askpass: Option<Arc<Askpass>>,
 }
 impl RunOptions {
     pub fn new(cwd: impl Into<PathBuf>) -> Self {
@@ -249,6 +256,7 @@ impl RunOptions {
             cancellation: CancellationToken::new(),
             heartbeat_interval: std::time::Duration::from_secs(15),
             progress: None,
+            askpass: None,
         }
     }
 }

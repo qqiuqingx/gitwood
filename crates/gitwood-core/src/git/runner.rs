@@ -1,5 +1,5 @@
 use super::{
-    command::read_config_arguments, filters, GitCommand, GitError, GitVersion, RunOptions,
+    askpass, command::read_config_arguments, filters, GitCommand, GitError, GitVersion, RunOptions,
 };
 use std::{
     path::{Path, PathBuf},
@@ -55,11 +55,12 @@ impl GitRunner {
         let command = command.into();
         let mut args = command.arguments()?;
         let read = matches!(command, GitCommand::Read(_));
+        let transport = matches!(&command, GitCommand::Write(write) if write.is_transport());
         let timeout = options
             .timeout
             .or_else(|| read.then(|| Duration::from_secs(30)));
         if read {
-            let mut query = self.process(options, true);
+            let mut query = self.process(options, true, false);
             query.arg("--no-pager").args(read_config_arguments()).args([
                 "config",
                 "--show-scope",
@@ -82,26 +83,51 @@ impl GitRunner {
             };
             args.splice(1..1, filters::overrides(&output)?);
         }
-        let mut process = self.process(options, read);
+        let mut process = self.process(options, read, transport);
         process.args(args);
         execute_report(process, options, &self.path, timeout).await
     }
 
-    fn process(&self, options: &RunOptions, read: bool) -> Command {
+    fn process(&self, options: &RunOptions, read: bool, transport: bool) -> Command {
         let mut process = Command::new(&self.path);
         process
             .current_dir(&options.cwd)
             .envs(&options.env)
             .env("LC_ALL", "C")
             .env("GIT_OPTIONAL_LOCKS", "0")
+            // No operation may block on a terminal: scans run without one, and a write
+            // started from Finder would otherwise wait for input nobody can type.
+            .env("GIT_TERMINAL_PROMPT", "0")
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .kill_on_drop(true);
         if read {
+            process.env("GIT_ALLOW_PROTOCOL", "");
+        } else if let Some(client) = options
+            .askpass
+            .as_deref()
+            .filter(|_| transport)
+            .map(|a| a.client())
+        {
+            // Only fetch and push reach a remote. Local steps of the same operation (commit
+            // hooks, stash, merge, rebase) never see the helper or its per-operation token.
+            // Git asks the credential helper first and only falls back to GIT_ASKPASS, so
+            // keychain and agent configuration keep precedence; nothing here edits them.
             process
-                .env("GIT_TERMINAL_PROMPT", "0")
-                .env("GIT_ALLOW_PROTOCOL", "");
+                .env("GIT_ASKPASS", &client.program)
+                .env("SSH_ASKPASS", &client.program)
+                .env("SSH_ASKPASS_REQUIRE", "force")
+                .env(askpass::SOCKET_ENV, client.socket)
+                .env(askpass::TOKEN_ENV, client.token);
+            // OpenSSH before 8.4 refuses a helper without DISPLAY. macOS has no X server and
+            // ships a newer OpenSSH, so a fake display there would only reach X-aware tools.
+            #[cfg(not(target_os = "macos"))]
+            if !options.env.contains_key(std::ffi::OsStr::new("DISPLAY"))
+                && std::env::var_os("DISPLAY").is_none()
+            {
+                process.env("DISPLAY", ":0");
+            }
         }
         process
     }

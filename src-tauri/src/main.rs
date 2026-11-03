@@ -1,4 +1,5 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+mod credential;
 mod native_menu;
 mod native_window;
 mod project_windows;
@@ -49,14 +50,34 @@ fn get_settings(
     })
 }
 
+/// Layout the UI owns: split ratios and the Commit panel view toggles. Tool window
+/// visibility is excluded because it changes through the native menu and `set_tool_window`.
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct LayoutChange {
+    ratios: Ratios,
+    commit_flat: bool,
+    commit_preview: bool,
+}
+
 #[tauri::command]
 fn save_layout(
     store: State<'_, SettingsStore>,
     sessions: WindowSession,
-    mut ratios: Ratios,
+    layout: LayoutChange,
 ) -> Result<(), String> {
+    let LayoutChange {
+        mut ratios,
+        commit_flat,
+        commit_preview,
+    } = layout;
     ratios.normalize();
-    sessions.state.layout.lock().unwrap().ratios = ratios;
+    {
+        let mut current = sessions.state.layout.lock().unwrap();
+        current.ratios = ratios;
+        current.commit_flat = commit_flat;
+        current.commit_preview = commit_preview;
+    }
     store.update(|s| s.layout = sessions.state.layout.lock().unwrap().clone());
     if let Some(error) = store.save_error() {
         return Err(error);
@@ -70,6 +91,7 @@ enum ToolWindow {
     Commit,
     Log,
 }
+
 #[tauri::command]
 fn set_tool_window(
     app: AppHandle,
@@ -144,11 +166,11 @@ fn finish_exit(
     window: WebviewWindow,
     sessions: WindowSession,
     store: State<'_, SettingsStore>,
-    ratios: Option<Ratios>,
+    layout: Option<LayoutChange>,
 ) -> Result<(), String> {
     let saved = (|| {
-        if let Some(ratios) = ratios {
-            save_layout(store.clone(), sessions.clone(), ratios)?;
+        if let Some(layout) = layout {
+            save_layout(store.clone(), sessions.clone(), layout)?;
         }
         store.flush()
     })();
@@ -199,6 +221,11 @@ fn request_exit_snapshot(app: &AppHandle, label: &str) -> bool {
 }
 
 fn main() {
+    // Git and SSH start this executable as their askpass program for one prompt; that run
+    // must not open a window or touch the application state.
+    if let Some(code) = gitwood_core::git::askpass::run_as_helper() {
+        std::process::exit(code);
+    }
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
@@ -278,6 +305,7 @@ fn main() {
             push,
             push_preview,
             commit_and_push,
+            credential::answer_credential,
         ])
         .on_menu_event(|app, event| {
             let store = app.state::<SettingsStore>();

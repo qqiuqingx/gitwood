@@ -1,5 +1,6 @@
 //! Project windows own independent repository sessions and live layout state.
 use crate::{
+    credential::Credentials,
     native_window::{fit_window, window_rect, Displays},
     repository::{record_recent, Error},
     settings::{Layout, SettingsStore},
@@ -28,6 +29,8 @@ pub struct ProjectWindow {
     pub project: Mutex<Option<PathBuf>>,
     pub layout: Mutex<Layout>,
     pub displays: Displays,
+    /// Prompts belong to the window that started the remote operation.
+    pub credentials: std::sync::Arc<Credentials>,
     pub ui_ready: AtomicBool,
     pub awaiting_ui: AtomicBool,
     pub authorized_close: AtomicBool,
@@ -39,6 +42,7 @@ impl ProjectWindow {
             project: Mutex::new(project),
             layout: Mutex::new(layout),
             displays: Displays::default(),
+            credentials: Default::default(),
             ui_ready: AtomicBool::new(false),
             awaiting_ui: AtomicBool::new(false),
             authorized_close: AtomicBool::new(false),

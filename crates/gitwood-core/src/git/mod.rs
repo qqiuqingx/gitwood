@@ -1,4 +1,5 @@
 //! Shell-free Git execution. Passive reads and explicit writes have separate policies.
+pub mod askpass;
 mod command;
 mod discovery;
 mod error;
@@ -6,6 +7,7 @@ mod filters;
 mod runner;
 mod version;
 
+pub use askpass::{Askpass, Prompt, PromptKind};
 pub use command::{GitCommand, ReadCommand, ReadOperation, RunOptions, WriteCommand};
 pub use error::GitError;
 pub use runner::{GitOutput, GitRunner};

@@ -155,11 +155,14 @@ export function pushPageRanges(total: number, pageSize = 200): Array<{ start: nu
 
 export function remoteErrorText(error: RemoteError): { title: string; detail: string; action: string } {
   const title = error.key === 'remote.authentication' ? 'Authentication required'
+    : error.key === 'remote.authCancelled' ? 'Authentication cancelled'
     : error.key === 'remote.hostKey' ? 'Host key verification failed'
     : error.key === 'remote.unreachable' ? 'Remote is unreachable'
     : error.key === 'remote.timeout' ? 'Remote operation timed out'
     : error.key === 'remote.cancelled' ? 'Remote operation cancelled' : 'Remote operation failed';
-  const action = error.guidance === 'remote.tryFetchInTerminal' ? 'Run git fetch in a terminal, save credentials or unlock the key, then retry.' : 'Check the remote configuration and Git output, then retry.';
+  const action = error.guidance === 'remote.checkCredentials' ? 'Check the credential helper or SSH agent, then retry.'
+    : error.guidance === 'remote.tryFetchInTerminal' ? 'Run git fetch in a terminal, save credentials or unlock the key, then retry.'
+    : 'Check the remote configuration and Git output, then retry.';
   return { title, detail: error.detail ?? '', action };
 }
 

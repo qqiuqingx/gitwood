@@ -9,7 +9,7 @@
   import type { RepositoryBrowser } from '../browse/browser.svelte';
   import { browseText as b } from '../../i18n/browse';
   import { diffText as t } from '../../i18n/diff';
-  let { browser }: { browser: RepositoryBrowser } = $props();
+  let { browser, ratio = $bindable(0.5) }: { browser: RepositoryBrowser; ratio?: number } = $props();
   interface Preview { left: Content; right: Content; result: DiffResult | null; leftLabel: string; rightLabel: string; conflicted: boolean; token?: string; selectable?: boolean }
   let value = $state<Preview | null>(null);
   let area = $state('');
@@ -59,7 +59,7 @@
     {#if value}
       <header>{value.leftLabel} ↔ {value.rightLabel}</header>
       {#if value.conflicted}<p>{b('conflicted')}</p>
-      {:else}<div class="body"><DiffView included={chosen} disabled={session.busy} onblock={value.token && !browser.previewFile.hash ? index=>{
+      {:else}<div class="body"><DiffView bind:ratio included={chosen} disabled={session.busy} onblock={value.token && !browser.previewFile.hash ? index=>{
           const file=browser.previewFile;if(!file || !value?.token || session.busy)return;
           if(value.selectable)session.selection=toggleBlock(session.selection,file.path,value.token,value.result?.blocks.length ?? 0,index);
           else session.selection=toggleRule(session.selection,`${file.staged || file.unstaged ? 'change' : 'untracked'}/${pathKey(file.path)}`,chosen.includes(index) ? 'all' : 'none');

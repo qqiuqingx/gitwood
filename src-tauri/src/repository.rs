@@ -446,7 +446,10 @@ pub async fn commit(
 }
 #[tauri::command]
 pub fn cancel_write(sessions: WindowSession, generation: u64) -> Result<(), Error> {
-    sessions.lease(generation)?.cancel_write();
+    let lease = sessions.lease(generation)?;
+    lease.cancel_write();
+    // A prompt still waiting for an answer ends with the operation it belongs to.
+    sessions.state.credentials.clear();
     Ok(())
 }
 #[tauri::command]
@@ -681,6 +684,10 @@ pub async fn fetch(
     expected: String,
 ) -> Result<gitwood_core::ops::remote::RemoteOutcome, gitwood_core::ops::remote::RemoteError> {
     let lease = sessions.lease(generation)?;
+    let askpass = sessions
+        .state
+        .credentials
+        .start(&app, &sessions, generation);
     let (progress, mut events) = gitwood_core::git::progress_channel::<String>();
     let event_app = app.clone();
     let event_sessions = sessions.clone();
@@ -695,6 +702,7 @@ pub async fn fetch(
             all,
             &expected,
             progress,
+            askpass,
         ))
     })
     .await
@@ -716,6 +724,10 @@ pub async fn update_project(
     strategy: Option<gitwood_core::ops::remote::UpdateStrategy>,
 ) -> Result<gitwood_core::ops::remote::RemoteOutcome, gitwood_core::ops::remote::RemoteError> {
     let lease = sessions.lease(generation)?;
+    let askpass = sessions
+        .state
+        .credentials
+        .start(&app, &sessions, generation);
     let (progress, mut events) = gitwood_core::git::progress_channel::<String>();
     let event_app = app.clone();
     let event_sessions = sessions.clone();
@@ -725,7 +737,7 @@ pub async fn update_project(
         }
     });
     let result = tauri::async_runtime::spawn_blocking(move || {
-        tauri::async_runtime::block_on(lease.update_project(&expected, strategy, progress))
+        tauri::async_runtime::block_on(lease.update_project(&expected, strategy, progress, askpass))
     })
     .await
     .map_err(|e| gitwood_core::repo::invalid(&e.to_string()))?;
@@ -787,6 +799,10 @@ pub async fn push(
     expected: String,
 ) -> Result<gitwood_core::ops::remote::RemoteOutcome, gitwood_core::ops::remote::RemoteError> {
     let lease = sessions.lease(generation)?;
+    let askpass = sessions
+        .state
+        .credentials
+        .start(&app, &sessions, generation);
     let (progress, mut events) = gitwood_core::git::progress_channel::<String>();
     let event_app = app.clone();
     let event_sessions = sessions.clone();
@@ -796,7 +812,7 @@ pub async fn push(
         }
     });
     let result = tauri::async_runtime::spawn_blocking(move || {
-        tauri::async_runtime::block_on(lease.push_remote(&options, &expected, progress))
+        tauri::async_runtime::block_on(lease.push_remote(&options, &expected, progress, askpass))
     })
     .await
     .map_err(|e| gitwood_core::repo::invalid(&e.to_string()))?;
@@ -838,6 +854,10 @@ pub async fn commit_and_push(
     options: gitwood_core::ops::remote::PushOptions,
 ) -> Result<gitwood_core::repo::write::CommitPushResult, Error> {
     let lease = sessions.lease(generation)?;
+    let askpass = sessions
+        .state
+        .credentials
+        .start(&app, &sessions, generation);
     let (progress, mut events) = gitwood_core::git::progress_channel::<String>();
     let event_app = app.clone();
     let event_sessions = sessions.clone();
@@ -854,6 +874,7 @@ pub async fn commit_and_push(
             &expected,
             &options,
             Some(progress),
+            askpass,
         ))
     })
     .await

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { defaultLayout, panelSplit } from '../src/layout/state';
+import { defaultLayout, layoutRequest, panelSplit } from '../src/layout/state';
 
 describe('panel visibility and retained split ratios', () => {
   it('restores the user size after hide/show for Commit and Git Log', () => {
@@ -24,5 +24,18 @@ describe('panel visibility and retained split ratios', () => {
     expect(restored.second).toBe(420);
     expect(panelSplit(ratio, 1000, 220, 420, true, true).first).toBe(500);
     expect(panelSplit(ratio, 0, 220, 420, true, true).first).toBe(0);
+  });
+});
+
+describe('persisted Commit view toggles', () => {
+  it('defaults to a flat list with the diff preview on, like the panel before it was stored', () => {
+    expect(defaultLayout.commitFlat).toBe(true);
+    expect(defaultLayout.commitPreview).toBe(true);
+    expect(defaultLayout.ratios.diffVersions).toBe(0.5);
+  });
+  it('saves ratios and both Commit view toggles in one request, without tool windows', () => {
+    const layout = { ...structuredClone(defaultLayout), commitFlat: false, commitVisible: false };
+    expect(layoutRequest(layout)).toEqual({ ratios: defaultLayout.ratios, commitFlat: false, commitPreview: true });
+    expect(layoutRequest({ ...layout, commitPreview: false })).toEqual({ ratios: defaultLayout.ratios, commitFlat: false, commitPreview: false });
   });
 });

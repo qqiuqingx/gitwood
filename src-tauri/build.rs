@@ -47,6 +47,7 @@ fn main() {
             "push",
             "push_preview",
             "commit_and_push",
+            "answer_credential",
         ]),
     ))
     .expect("failed to build Gitwood application assets and permissions");

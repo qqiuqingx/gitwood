@@ -292,7 +292,7 @@
     {/if}
     {#if busy}<p role="status">{progress || 'Working…'} <progress></progress><button onclick={() => void invoke('cancel_write', { generation: browser.generation })}>Cancel</button></p>{/if}
     {#if outcome}<p role="status">{outcomeText(outcome)}</p>{#if outcome.kind === 'conflicts' || outcome.kind === 'interrupted'}<button onclick={() => void write('abort_update', { stash: outcomeStash(outcome) })}>Abort Update</button>{/if}{/if}
-    {#if displayError}<div class="error" role="alert"><strong>{displayError.title}</strong><p>{displayError.detail}</p><p>{displayError.action}</p><p class="hint">v0.1 does not provide a credential input dialog.</p></div>{/if}
+    {#if displayError}<div class="error" role="alert"><strong>{displayError.title}</strong><p>{displayError.detail}</p><p>{displayError.action}</p></div>{/if}
     {#if result}<p role="status">Commit {result.hash}: {commitPushFeedback(result).push === 'success' ? 'commit and push completed.' : commitPushFeedback(result).push === 'recovery' ? 'commit completed; index recovery required, push was not started.' : commitPushFeedback(result).push === 'failed' ? 'commit completed, push failed.' : 'commit completed; push was not run.'}</p>{/if}
   </dialog>
 {/if}

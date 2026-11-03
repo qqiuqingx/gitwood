@@ -548,26 +548,34 @@ impl Lease {
         all: bool,
         expected: &str,
         progress: tokio::sync::mpsc::UnboundedSender<String>,
+        askpass: Option<std::sync::Arc<crate::git::askpass::Askpass>>,
     ) -> Result<crate::ops::remote::RemoteOutcome, crate::ops::remote::RemoteError> {
         let mut guard = self
             .writes
             .start(&self.options)
             .map_err(|e| crate::repo::invalid(&e.to_string()))?;
         guard.options.progress = Some(progress);
-        crate::ops::remote::fetch(&self.runner, &guard.options, remote, all, expected).await
+        guard.options.askpass = askpass.clone();
+        let result =
+            crate::ops::remote::fetch(&self.runner, &guard.options, remote, all, expected).await;
+        auth_cancelled(result, askpass.as_deref())
     }
     pub async fn update_project(
         &self,
         expected: &str,
         strategy: Option<crate::ops::remote::UpdateStrategy>,
         progress: tokio::sync::mpsc::UnboundedSender<String>,
+        askpass: Option<std::sync::Arc<crate::git::askpass::Askpass>>,
     ) -> Result<crate::ops::remote::RemoteOutcome, crate::ops::remote::RemoteError> {
         let mut guard = self
             .writes
             .start(&self.options)
             .map_err(|e| crate::repo::invalid(&e.to_string()))?;
         guard.options.progress = Some(progress);
-        crate::ops::remote::update(&self.runner, &guard.options, expected, strategy).await
+        guard.options.askpass = askpass.clone();
+        let result =
+            crate::ops::remote::update(&self.runner, &guard.options, expected, strategy).await;
+        auth_cancelled(result, askpass.as_deref())
     }
     pub async fn default_update_strategy(
         &self,
@@ -580,6 +588,7 @@ impl Lease {
         stash: Option<&str>,
         progress: tokio::sync::mpsc::UnboundedSender<String>,
     ) -> Result<crate::ops::remote::RemoteOutcome, crate::ops::remote::RemoteError> {
+        // Aborting a merge/rebase and restoring the stash are local: nothing can prompt.
         let mut guard = self
             .writes
             .start(&self.options)
@@ -630,14 +639,32 @@ impl Lease {
         options: &crate::ops::remote::PushOptions,
         expected: &str,
         progress: tokio::sync::mpsc::UnboundedSender<String>,
+        askpass: Option<std::sync::Arc<crate::git::askpass::Askpass>>,
     ) -> Result<crate::ops::remote::RemoteOutcome, crate::ops::remote::RemoteError> {
         let mut guard = self
             .writes
             .start(&self.options)
             .map_err(|e| crate::repo::invalid(&e.to_string()))?;
         guard.options.progress = Some(progress);
-        crate::ops::remote::push(&self.runner, &guard.options, options, expected).await
+        guard.options.askpass = askpass.clone();
+        let result =
+            crate::ops::remote::push(&self.runner, &guard.options, options, expected).await;
+        auth_cancelled(result, askpass.as_deref())
     }
+}
+
+/// A cancelled prompt aborts authentication, so it reports that instead of a generic failure.
+fn auth_cancelled<T>(
+    result: Result<T, crate::ops::remote::RemoteError>,
+    askpass: Option<&crate::git::askpass::Askpass>,
+) -> Result<T, crate::ops::remote::RemoteError> {
+    result.map_err(|mut error| {
+        if askpass.is_some_and(|askpass| askpass.cancelled()) {
+            error.key = "remote.authCancelled".into();
+            error.guidance = "remote.checkCredentials";
+        }
+        error
+    })
 }
 
 #[derive(Serialize)]
@@ -647,6 +674,8 @@ pub struct CommitPushResult {
     pub push: Option<Result<crate::ops::remote::RemoteOutcome, crate::ops::remote::RemoteError>>,
 }
 impl Lease {
+    /// Mirrors the IPC surface of one user action: commit fields plus the push transport.
+    #[allow(clippy::too_many_arguments)]
     pub async fn commit_and_push(
         &self,
         selection: &Selection,
@@ -655,6 +684,7 @@ impl Lease {
         expected: &str,
         options: &crate::ops::remote::PushOptions,
         progress: Option<tokio::sync::mpsc::UnboundedSender<String>>,
+        askpass: Option<std::sync::Arc<crate::git::askpass::Askpass>>,
     ) -> Result<CommitPushResult, CommitError> {
         let mut guard = self.writes.start(&self.options)?;
         guard.options.progress = progress;
@@ -662,18 +692,24 @@ impl Lease {
             .commit_with_guard(selection, message, amend, expected, &guard)
             .await?;
         let push = if matches!(commit, ResultState::Committed { .. }) {
-            Some(match ops::snapshot(&self.runner, &guard.options).await {
-                Ok(snapshot) => {
-                    crate::ops::remote::push(
-                        &self.runner,
-                        &guard.options,
-                        options,
-                        &snapshot.fingerprint,
-                    )
-                    .await
-                }
-                Err(error) => Err(error.into()),
-            })
+            // Only the push may prompt; the commit and its hooks ran without the helper.
+            let mut transport = guard.options.clone();
+            transport.askpass = askpass.clone();
+            Some(auth_cancelled(
+                match ops::snapshot(&self.runner, &guard.options).await {
+                    Ok(snapshot) => {
+                        crate::ops::remote::push(
+                            &self.runner,
+                            &transport,
+                            options,
+                            &snapshot.fingerprint,
+                        )
+                        .await
+                    }
+                    Err(error) => Err(error.into()),
+                },
+                askpass.as_deref(),
+            ))
         } else {
             None
         };

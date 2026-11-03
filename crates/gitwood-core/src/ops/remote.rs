@@ -38,10 +38,16 @@ impl From<GitError> for RemoteError {
             _ if text.contains("timed out") => "remote.timeout",
             _ => "remote.failed",
         };
+        // Authentication problems are fixed in the credential helper or SSH agent, not in
+        // a terminal; other failures still point at the Git configuration and output.
+        let guidance = match key {
+            "remote.authentication" | "remote.hostKey" => "remote.checkCredentials",
+            _ => "remote.tryFetchInTerminal",
+        };
         Self {
             key: key.into(),
             detail: text,
-            guidance: "remote.tryFetchInTerminal",
+            guidance,
         }
     }
 }
@@ -206,7 +212,8 @@ async fn transport_options(r: &GitRunner, o: &RunOptions) -> Result<RunOptions, 
             .env
             .contains_key(std::ffi::OsStr::new("GIT_SSH_COMMAND"))
         || options.env.contains_key(std::ffi::OsStr::new("GIT_SSH"));
-    if !inherited && config(r, o, "core.sshCommand").await?.is_none() {
+    // BatchMode would disable the SSH prompt the askpass helper exists to answer.
+    if !inherited && config(r, o, "core.sshCommand").await?.is_none() && o.askpass.is_none() {
         options
             .env
             .insert("GIT_SSH_COMMAND".into(), "ssh -o BatchMode=yes".into());

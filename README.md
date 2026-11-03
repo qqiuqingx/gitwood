@@ -7,18 +7,30 @@ Svelte 5, and TypeScript. Its interaction design references IntelliJ IDEA.
 Gitwood uses its own name and original icon; it is an independent project.
 No telemetry or usage data is collected.
 
-**Status: v0.1 local-use development.** The application can open a local
-repository, browse history and diffs, commit selected changes, use the IDEA-style
-branch popup, create/checkout/rename/delete branches, fetch/update/push, and run
-Commit and Push through the real IPC path. v0.1 targets macOS; Windows and Linux
-builds are configured in CI, with releases planned from v0.2.
+**Status: v0.1 (macOS).** The application opens local repositories, browses
+history and a double-pane diff, commits selected changes (including partial hunks
+and Amend), uses the IDEA-style branch popup to create/checkout/rename/delete
+branches, fetches/updates/pushes, and prompts for Git/SSH credentials in the app
+window when needed. v0.1 targets macOS only. Windows and Linux support begins in
+v0.2; the three-platform CI is deferred to v0.3.
 
 ### Known limitations
 
-- There is no credential input dialog; Git uses the configured credential helper and SSH setup.
+- Gitwood never stores credentials it asks for; whether they are remembered is
+  decided by the system Git credential helper (macOS Keychain, etc.).
 - Conflict resolution is deferred to v0.2.
-- Windows and Linux have not been runtime-verified.
-- macOS artifacts are not notarized; an unsigned/ad-hoc download may need “Open Anyway”.
+- Windows and Linux support begins in v0.2; neither has been runtime-verified.
+- macOS artifacts are ad-hoc signed and not notarized (see below).
+
+## Screenshots
+
+![Main window: commit panel and Git log](docs/images/screenshot-main.png)
+
+![Double-pane diff](docs/images/screenshot-diff.png)
+
+![Branch popup](docs/images/screenshot-branches.png)
+
+![Push dialog](docs/images/screenshot-push.png)
 
 ## Build from source
 
@@ -60,8 +72,14 @@ rustup target add aarch64-apple-darwin x86_64-apple-darwin
 pnpm tauri build --target universal-apple-darwin --bundles dmg
 ```
 
-macOS bundles are ad-hoc signed, without notarization. Future downloaded builds
-may require approval in System Settings → Privacy & Security → Open Anyway.
+macOS bundles are ad-hoc signed, without notarization. On first open a downloaded
+build may be blocked: choose System Settings → Privacy & Security → Open Anyway,
+or clear the quarantine attribute:
+
+```sh
+xattr -d com.apple.quarantine /Applications/Gitwood.app
+```
+
 The tag workflow uploads a universal DMG and SHA-256 as workflow artifacts;
 publishing a GitHub Release remains a manual, maintainer-approved action.
 

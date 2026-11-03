@@ -6,17 +6,27 @@ Gitwood 是使用 Rust、Tauri 2、Svelte 5 和 TypeScript 构建的跨平台开
 客户端，交互参考 IntelliJ IDEA。项目使用自有名称和原创图标，独立开发，
 不收集遥测或使用数据。
 
-**状态：v0.1 本地可用开发中。** 当前应用可以打开本地仓库、浏览历史和 Diff、提交选中的
-变更，使用 IDEA 风格分支弹窗完成新建/检出/重命名/删除，并执行 Fetch、Update、Push
-以及真实 IPC 路径上的“提交并推送”。v0.1 面向 macOS，CI 配置覆盖 Windows 和 Linux，
-后两者从 v0.2 起发布。
+**状态：v0.1（macOS）。** 应用可以打开本地仓库、浏览历史与双栏 Diff、提交选中变更
+（含差异块选择与 Amend），使用 IDEA 风格分支弹窗完成新建/检出/重命名/删除，执行
+Fetch、Update、Push，并在需要时于应用窗口内弹出 Git/SSH 凭据输入框。v0.1 只面向
+macOS；Windows 和 Linux 从 v0.2 起，三平台 CI 推迟到 v0.3。
 
 ### 已知限制
 
-- 不提供凭据输入对话框；使用系统已配置的 credential helper 和 SSH。
+- Gitwood 不保存它所询问的凭据；是否记住由系统的 Git 凭据助手（如 macOS 钥匙串）决定。
 - 冲突解决待 v0.2。
-- Windows/Linux 尚未运行时验证。
-- macOS 构建未公证；下载的未签名/ad-hoc 应用可能需要选择“仍要打开”。
+- Windows/Linux 从 v0.2 起，尚未运行时验证。
+- macOS 使用 ad-hoc 签名、不做公证（见下文）。
+
+## 截图
+
+![主窗口：提交面板与 Git 日志](docs/images/screenshot-main.png)
+
+![双栏 Diff](docs/images/screenshot-diff.png)
+
+![分支弹窗](docs/images/screenshot-branches.png)
+
+![Push 对话框](docs/images/screenshot-push.png)
 
 ## 从源码构建
 
@@ -57,9 +67,15 @@ rustup target add aarch64-apple-darwin x86_64-apple-darwin
 pnpm tauri build --target universal-apple-darwin --bundles dmg
 ```
 
-macOS 使用 ad-hoc 签名，不做公证。后续下载的安装包可能需要在“系统设置 →
-隐私与安全性”中选择“仍要打开”。tag 工作流只上传 universal DMG 和 SHA-256
-到工作流产物，公开发布 GitHub Release 仍由维护者确认后执行。
+macOS 使用 ad-hoc 签名，不做公证。首次打开下载的安装包时系统可能阻止，请到
+“系统设置 → 隐私与安全性”选择“仍要打开”，或清除隔离属性：
+
+```sh
+xattr -d com.apple.quarantine /Applications/Gitwood.app
+```
+
+tag 工作流只上传 universal DMG 和 SHA-256 到工作流产物，公开发布 GitHub Release
+仍由维护者确认后执行。
 
 ## 验证命令
 

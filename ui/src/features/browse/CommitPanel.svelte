@@ -14,9 +14,7 @@
   import PagedFileTree from './PagedFileTree.svelte';
   import type { RepositoryBrowser } from './browser.svelte';
   import { browseText as t } from '../../i18n/browse';
-  let { browser, refresh, commitPush = () => {} }: { browser: RepositoryBrowser; refresh: () => void; commitPush?: () => void } = $props();
-  let flat = $state(true);
-  let preview = $state(true);
+  let { browser, refresh, commitPush = () => {}, flat = $bindable(true), preview = $bindable(true) }: { browser: RepositoryBrowser; refresh: () => void; commitPush?: () => void; flat?: boolean; preview?: boolean } = $props();
   let selectedFile = $state<FileRow>();
   let optionsAnchor = $state<HTMLButtonElement | null>(null);
   function previewFile(row: FileRow) {
