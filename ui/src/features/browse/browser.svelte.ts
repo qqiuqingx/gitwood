@@ -4,6 +4,17 @@ import { invoke } from '@tauri-apps/api/core';
 import { buildFilter, emptyFilter, mergeRefresh, preserveViewport, RequestGate } from './model';
 import type { Commit, FilterInput, HistoryRow, Opened, Recent, References, Refresh, RepositoryError, Rows, StatusSummary } from './types';
 
+/** List row ID of a commit row that is not loaded yet. */
+export const placeholder = 'row:';
+/** Sorted row indices to half-open ranges. */
+export function rowRanges(indices: readonly number[]): [number, number][] {
+  const ranges: [number, number][] = [];
+  for (const index of indices) {
+    const last = ranges[ranges.length - 1];
+    if (last && last[1] === index) last[1] = index + 1; else if (!last || index >= last[1]) ranges.push([index, index + 1]);
+  }
+  return ranges;
+}
 const nothing = (): Refresh => ({ status: false, refs: false, history: false });
 const everything = (): Refresh => ({ status: true, refs: true, history: true });
 export class RepositoryBrowser {
@@ -19,6 +30,8 @@ export class RepositoryBrowser {
   rows = $state.raw(new Map<number, HistoryRow>());
   total = $state(0);
   selected = $state('');
+  /** Log multi-selection as commit IDs; `selected` is the lead row shown in the details. */
+  selection = $state.raw<ReadonlySet<string>>(new Set());
   activeIndex = $state(-1);
   scrollTop = $state(0);
   rowHeight = 24;
@@ -32,7 +45,7 @@ export class RepositoryBrowser {
   private draining = false;
   private session = new RequestGate();
   private pages = new RequestGate();
-  private selection = new RequestGate();
+  private selectionGate = new RequestGate();
   private filterRevision = 0;
   private disposed = false;
   private operations: Promise<unknown> = Promise.resolve();
@@ -53,10 +66,10 @@ export class RepositoryBrowser {
     if (this.commit.busy) return;
     this.commit = new CommitSession();
     const ticket = this.session.next();
-    this.pages.invalidate(); this.selection.invalidate();
+    this.pages.invalidate(); this.selectionGate.invalidate();
     this.previewFile = null; this.project = null; this.generation = 0; this.opening = true; this.error = null;
     this.rows = new Map(); this.total = 0; this.status = null; this.statusRevision = 0; this.statusGeneration = 0; this.refs = null;
-    this.selected = ''; this.activeIndex = -1; this.scrollTop = 0; this.details = null;
+    this.selected = ''; this.selection = new Set(); this.activeIndex = -1; this.scrollTop = 0; this.details = null;
     this.filter = emptyFilter(); this.pending = nothing();
     try {
       // Discovery precedes backend session installation. Serialize open/close so
@@ -75,13 +88,13 @@ export class RepositoryBrowser {
   async close() {
     if (this.commit.busy) return;
     this.commit = new CommitSession();
-    this.session.invalidate(); this.pages.invalidate(); this.selection.invalidate();
-    this.previewFile = null; this.project = null; this.generation = 0; this.rows = new Map(); this.status = null; this.statusRevision = 0; this.statusGeneration = 0; this.refs = null;
+    this.session.invalidate(); this.pages.invalidate(); this.selectionGate.invalidate();
+    this.previewFile = null; this.project = null; this.generation = 0; this.rows = new Map(); this.selection = new Set(); this.status = null; this.statusRevision = 0; this.statusGeneration = 0; this.refs = null;
     this.details = null; this.pending = nothing(); this.opening = false;
     this.operations = this.operations.catch(() => {}).then(() => invoke('close_repository'));
     await this.operations;
   }
-  dispose() { this.disposed = true; this.session.invalidate(); this.pages.invalidate(); this.selection.invalidate(); }
+  dispose() { this.disposed = true; this.session.invalidate(); this.pages.invalidate(); this.selectionGate.invalidate(); }
   report(error: unknown) {
     const value: RepositoryError = typeof error === 'object' && error !== null ? error : { detail: String(error) };
     if (value.key !== 'repository.stale') this.error = value;
@@ -120,7 +133,7 @@ export class RepositoryBrowser {
     const oldState = { selected: this.selected, index: this.activeIndex, scrollTop: this.scrollTop };
     const anchorIndex = Math.floor(this.scrollTop / this.rowHeight);
     const anchor = this.rows.get(anchorIndex)?.commit.hash;
-    this.loading = true; this.pages.invalidate(); this.selection.invalidate();
+    this.loading = true; this.pages.invalidate(); this.selectionGate.invalidate();
     try {
       const result = await invoke<{ generation: number; total: number }>('history_layout', { generation: this.generation, filter: buildFilter(this.filter) });
       if (project !== this.project || this.disposed) return;
@@ -138,7 +151,8 @@ export class RepositoryBrowser {
       await tick();
       await this.loadRange(this.range, true);
       if (!this.current(project, result.generation)) return;
-      if (this.selected) await this.selectHash(this.selected);
+      // Refresh keeps the multi-selection; IDs no longer shown are dropped when used.
+      if (this.selected) await this.selectHash(this.selected, true);
       else if (this.total) await this.selectIndex(Math.min(this.total - 1, Math.floor(this.scrollTop / this.rowHeight)));
     } catch (error) {
       const value = error as RepositoryError;
@@ -179,18 +193,18 @@ export class RepositoryBrowser {
   async goToCommit(hash: string) {
     const project = this.project, generation = this.generation;
     if (!project) return;
-    const ticket = this.selection.next();
+    const ticket = this.selectionGate.next();
     try {
       const position = await this.historyPosition(hash);
-      if (position === null || !this.selection.accepts(ticket)) return;
+      if (position === null || !this.selectionGate.accepts(ticket)) return;
       this.scrollTop = position * this.rowHeight;
       await this.selectIndex(position);
-    } catch (error) { if (this.current(project, generation) && this.selection.accepts(ticket)) this.report(error); }
+    } catch (error) { if (this.current(project, generation) && this.selectionGate.accepts(ticket)) this.report(error); }
   }
-  async selectIndex(index: number) {
+  async selectIndex(index: number, keepSelection = false) {
     if (index < 0 || index >= this.total) return;
     this.activeIndex = index;
-    const ticket = this.selection.next();
+    const ticket = this.selectionGate.next();
     const generation = this.generation, project = this.project!;
     try {
       let row = this.rows.get(index);
@@ -198,24 +212,44 @@ export class RepositoryBrowser {
         // Navigation may target an uncached row (End/PageDown). Its response is
         // guarded by the selection ticket, independent of scrolling page reads.
         const result = await invoke<Rows>('history_rows', { generation, start: index, end: index + 1 });
-        if (!this.selection.accepts(ticket) || !this.current(project, generation)) return;
+        if (!this.selectionGate.accepts(ticket) || !this.current(project, generation)) return;
         const node = result.nodes[0], commit = result.commits[0];
         if (node && commit) {
           row = { index: node[0], column: node[1], color: node[2], segments: result.segments.slice(node[3], node[4]), commit, current: result.current[0] ?? false };
           this.rows = new Map([...this.rows, [index, row]]);
         }
       }
-      if (!this.selection.accepts(ticket) || !this.current(project, generation)) return;
-      if (row) await this.selectHash(row.commit.hash);
-    } catch (error) { if (this.selection.accepts(ticket) && this.current(project, generation)) this.report(error); }
+      if (!this.selectionGate.accepts(ticket) || !this.current(project, generation)) return;
+      if (row) await this.selectHash(row.commit.hash, keepSelection);
+    } catch (error) { if (this.selectionGate.accepts(ticket) && this.current(project, generation)) this.report(error); }
   }
-  private async selectHash(hash: string) {
-    const ticket = this.selection.next(), generation = this.generation, project = this.project!;
+  /**
+   * List selection change. IDs of rows not loaded yet (`row:N`, from Shift ranges) are
+   * resolved in Rust from the current layout; only commit IDs cross IPC.
+   */
+  async setSelection(ids: ReadonlySet<string>, index: number) {
+    const generation = this.generation, project = this.project;
+    if (!project) return;
+    const pending = [...ids].filter(id => id.startsWith(placeholder)).map(id => Number(id.slice(placeholder.length))).sort((a, b) => a - b);
+    let hashes = [...ids].filter(id => !id.startsWith(placeholder));
+    if (pending.length) {
+      try {
+        const resolved = await invoke<string[]>('history_hashes', { generation, ranges: rowRanges(pending) });
+        if (!this.current(project, generation)) return;
+        hashes = [...hashes, ...resolved];
+      } catch (error) { if (this.current(project, generation)) this.report(error); return; }
+    }
+    this.selection = new Set(hashes);
+    await this.selectIndex(index, true);
+  }
+  private async selectHash(hash: string, keepSelection = false) {
+    const ticket = this.selectionGate.next(), generation = this.generation, project = this.project!;
     this.selected = hash; this.details = null;
+    if (!keepSelection || !this.selection.has(hash)) this.selection = new Set([hash]);
     try {
       const details = await invoke<Commit>('commit_details', { generation, hash });
-      if (!this.current(project, generation) || !this.selection.accepts(ticket)) return;
+      if (!this.current(project, generation) || !this.selectionGate.accepts(ticket)) return;
       this.details = details;
-    } catch (error) { if (this.current(project, generation) && this.selection.accepts(ticket)) this.report(error); }
+    } catch (error) { if (this.current(project, generation) && this.selectionGate.accepts(ticket)) this.report(error); }
   }
 }

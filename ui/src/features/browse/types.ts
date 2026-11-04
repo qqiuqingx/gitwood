@@ -17,4 +17,7 @@ export interface Recent { path: string; displayPath: string; failed: boolean }
 export interface Refresh { status: boolean; refs: boolean; history: boolean }
 export interface RepositoryError { generation?: number; key?: string; path?: string; detail?: string }
 
-export interface StatusSummary { fingerprint: string; branch: Branch; changes: number; untracked: number }
+export type OperationKind = 'merge' | 'rebase' | 'applyMailbox' | 'cherryPick' | 'revert' | 'bisect';
+/** Merge / rebase / cherry-pick / revert / bisect in progress, read from the Git directory. */
+export interface Operation { kind: OperationKind; branch: string | null; step: number | null; total: number | null }
+export interface StatusSummary { fingerprint: string; branch: Branch; changes: number; untracked: number; conflicts: number; operation: Operation | null }

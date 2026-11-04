@@ -1,5 +1,6 @@
 //! Repository discovery, byte-preserving status, references, sessions and event refresh.
 pub mod file_tree;
+pub mod operation;
 pub mod refs;
 pub mod session;
 pub mod status;

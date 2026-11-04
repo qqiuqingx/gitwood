@@ -289,6 +289,19 @@ pub async fn history_position(
     Ok(position)
 }
 
+/// Resolves a log multi-selection over unloaded rows; `ranges` are half-open row ranges.
+#[tauri::command]
+pub async fn history_hashes(
+    sessions: WindowSession,
+    generation: u64,
+    ranges: Vec<(u32, u32)>,
+) -> Result<Vec<String>, Error> {
+    let lease = sessions.lease(generation)?;
+    let hashes = lease.hashes(&ranges).await?;
+    sessions.check(&lease)?;
+    Ok(hashes)
+}
+
 #[derive(serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TreeViewport {
@@ -902,9 +915,48 @@ pub async fn undo_commit(
     .map_err(Into::into)
 }
 #[tauri::command]
-pub async fn undo_in_progress(sessions: WindowSession, generation: u64) -> Result<bool, Error> {
+pub async fn operation_state(
+    sessions: WindowSession,
+    generation: u64,
+) -> Result<Option<gitwood_core::repo::operation::Operation>, Error> {
     let l = sessions.lease(generation)?;
-    let result = l.undo_in_progress().await;
+    let result = l.operation_state().await;
     sessions.check(&l)?;
     Ok(result?)
+}
+
+#[tauri::command]
+pub async fn sequence(
+    app: AppHandle,
+    sessions: WindowSession,
+    generation: u64,
+    expected: String,
+    action: gitwood_core::ops::sequence::SequenceAction,
+    message: Option<String>,
+) -> Result<gitwood_core::ops::sequence::SequenceOutcome, gitwood_core::ops::remote::RemoteError> {
+    let lease = sessions.lease(generation)?;
+    let (progress, mut events) = gitwood_core::git::progress_channel::<String>();
+    let event_app = app.clone();
+    let event_sessions = sessions.clone();
+    tauri::async_runtime::spawn(async move {
+        while let Some(message) = events.recv().await {
+            let _ = event_sessions.emit(&event_app, "remote_progress", (generation, message));
+        }
+    });
+    let result = tauri::async_runtime::spawn_blocking(move || {
+        tauri::async_runtime::block_on(lease.sequence(
+            &expected,
+            action,
+            message.as_deref(),
+            progress,
+        ))
+    })
+    .await
+    .map_err(|e| gitwood_core::repo::invalid(&e.to_string()))?;
+    let _ = sessions.emit(
+        &app,
+        "repository-refresh",
+        (generation, gitwood_core::repo::watch::Refresh::all()),
+    );
+    result
 }

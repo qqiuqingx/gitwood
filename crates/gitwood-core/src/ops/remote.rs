@@ -220,7 +220,7 @@ async fn transport_options(r: &GitRunner, o: &RunOptions) -> Result<RunOptions, 
     }
     Ok(options)
 }
-async fn check(r: &GitRunner, o: &RunOptions, expected: &str) -> Result<(), GitError> {
+pub(super) async fn check(r: &GitRunner, o: &RunOptions, expected: &str) -> Result<(), GitError> {
     let repository = repo::Repository::open(r, o).await?;
     if repository.git_dir.join("index.lock").exists() {
         return Err(repo::invalid("remote.indexLocked"));
@@ -507,13 +507,19 @@ pub async fn abort_update(
             return Err(repo::invalid("remote.stashChanged").into());
         }
     }
-    let repository = repo::Repository::open(r, o).await?;
-    if repository.git_dir.join("rebase-merge").exists()
-        || repository.git_dir.join("rebase-apply").exists()
-    {
-        cmd(r, o, "rebase", &["--abort"]).await?;
-    } else {
-        cmd(r, o, "merge", &["--abort"]).await?;
+    // Update only starts a merge or a rebase; abort whichever Git reports.
+    match super::sequence::run_locked(r, o, super::sequence::SequenceAction::Abort, None).await? {
+        super::sequence::SequenceOutcome::Completed => {}
+        _ => {
+            return Ok(RemoteOutcome::Interrupted {
+                stash: stash.map(Into::into),
+                error: RemoteError {
+                    key: "sequence.stillInProgress".into(),
+                    detail: String::new(),
+                    guidance: "remote.abortUpdate",
+                },
+            })
+        }
     }
     if let Some(stash) = stash {
         if ![40, 64].contains(&stash.len()) || !stash.bytes().all(|b| b.is_ascii_hexdigit()) {

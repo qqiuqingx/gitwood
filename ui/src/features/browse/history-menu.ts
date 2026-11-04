@@ -2,17 +2,23 @@ import type { PopupItem } from '../../components/popup';
 import type { Commit, References } from './types';
 import { branchItem, type BranchPopupHandlers } from '../git/model';
 import type { HistoryMenuMessage } from '../../i18n/history-menu';
+import { historyEditReason, type EditInfo, type EditReason } from './history-edit';
 
-export interface UndoInfo { branches: string[]; total: number; protected: boolean; inProgress: boolean }
+export type UndoInfo = EditInfo;
+const undoMessages: Record<EditReason, HistoryMenuMessage> = {
+  loading: 'undoLoading', head: 'undoHead', merge: 'undoMerge', root: 'undoRoot', state: 'undoState', protected: 'undoProtected',
+};
 export function undoReason(commit: Commit, refs: References | null, info: UndoInfo | null): HistoryMenuMessage | null {
-  if (!refs) return 'undoLoading';
-  if (!refs.head.oid || refs.head.oid !== commit.hash) return 'undoHead';
-  if (commit.parents.length > 1) return 'undoMerge';
-  if (!commit.parents.length) return 'undoRoot';
-  if (!info) return 'undoLoading';
-  if (info.inProgress) return 'undoState';
-  if (info.protected || info.branches.some(name => /^refs\/remotes\/[^/]+\/(main|master)$/.test(name))) return 'undoProtected';
-  return null;
+  const reason = historyEditReason(commit, refs, info, { head: true, nonMerge: true, nonRoot: true, unprotected: true });
+  return reason ? undoMessages[reason] : null;
+}
+
+/** IDEA VcsLog actions with several selected commits: only multi-commit actions stay enabled. */
+const multiCommitItems = new Set(['copy']);
+export function forSelection(items: PopupItem[], count: number): PopupItem[] {
+  if (count <= 1) return items;
+  return items.map(item => item.kind === 'separator' || multiCommitItems.has(item.id) ? item
+    : { ...item, disabled: true, run: undefined, children: undefined, hint: undefined });
 }
 
 export function historyMenuItems(commit: Commit, refs: References | null, handlers: BranchPopupHandlers | undefined,

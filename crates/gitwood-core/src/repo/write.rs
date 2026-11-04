@@ -596,6 +596,21 @@ impl Lease {
         guard.options.progress = Some(progress);
         crate::ops::remote::abort_update(&self.runner, &guard.options, expected, stash).await
     }
+    pub async fn sequence(
+        &self,
+        expected: &str,
+        action: crate::ops::sequence::SequenceAction,
+        message: Option<&str>,
+        progress: tokio::sync::mpsc::UnboundedSender<String>,
+    ) -> Result<crate::ops::sequence::SequenceOutcome, crate::ops::remote::RemoteError> {
+        // Local only: continuing runs hooks but never a remote transport.
+        let mut guard = self
+            .writes
+            .start(&self.options)
+            .map_err(|e| crate::repo::invalid(&e.to_string()))?;
+        guard.options.progress = Some(progress);
+        crate::ops::sequence::run(&self.runner, &guard.options, expected, action, message).await
+    }
     pub async fn push_preview(
         &self,
         options: &crate::ops::remote::PushOptions,
@@ -722,7 +737,9 @@ impl Lease {
         let guard = self.writes.start(&self.options)?;
         ops::undo_commit(&self.runner, &guard.options, expected).await
     }
-    pub async fn undo_in_progress(&self) -> Result<bool, CommitError> {
-        ops::undo_in_progress(&self.runner, &self.options).await
+    pub async fn operation_state(
+        &self,
+    ) -> Result<Option<super::operation::Operation>, CommitError> {
+        ops::operation_state(&self.runner, &self.options).await
     }
 }

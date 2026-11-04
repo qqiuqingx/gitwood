@@ -14,11 +14,15 @@
     pushRejectionText, remoteErrorText, type BranchPopupHandlers, type CheckoutMode, type CommitPushResult,
     type PushOptions, type PushPreview, type RemoteError, type RemoteOutcome, type UpdateStrategy,
   } from './model';
+  import { abortConfirmation, operationActions, operationLabel, sequenceErrorText, sequenceFeedback, type SequenceAction, type SequenceOutcome } from './operation';
+  import { notifications } from '../notifications/center.svelte';
+  import type { NoticeAction } from '../notifications/model';
+  import { operationText } from '../../i18n/operation';
 
   let { browser, oncommitpush }: { browser: RepositoryBrowser; oncommitpush: () => void } = $props();
   let branchAnchor = $state<HTMLButtonElement>();
   let popup = $state(false);
-  let dialog = $state<'new' | 'rename' | 'delete' | 'checkout' | 'update' | 'push' | null>(null);
+  let dialog = $state<'new' | 'rename' | 'delete' | 'checkout' | 'update' | 'push' | 'abort' | null>(null);
   let name = $state('');
   let newName = $state('');
   let start = $state('');
@@ -48,11 +52,14 @@
   });
 
   const current = $derived(browser.refs?.head.head ?? 'HEAD');
+  const operation = $derived(browser.status?.operation ?? null);
+  const ongoing = $derived(operationActions(operation));
+  const branchText = $derived(operation ? operationLabel(operation, browser.refs?.head.head ?? null) : current);
   const refs = $derived(browser.refs);
   const ahead = $derived(refs?.head.ahead ?? 0);
   const behind = $derived(refs?.head.behind ?? 0);
   const expected = () => browser.status?.fingerprint ?? '';
-  const displayError = $derived(error ? remoteErrorText(error) : null);
+  const displayError = $derived(error ? (dialog === 'abort' ? { ...sequenceErrorText(operation?.kind ?? null, error), action: '' } : remoteErrorText(error)) : null);
   const newTarget = $derived(isNewPushTarget(refs, pushOptions));
   const handlers: BranchPopupHandlers = {
     checkout: (value) => { name = value; mode = 'normal'; dialog = 'checkout'; popup = false; },
@@ -75,7 +82,10 @@
   }
   const branchRefs = $derived(new Map(refs ? [...refs.local, ...Object.values(refs.remotes).flat(), ...refs.tags].map(ref => [ref.name, ref] as const) : []));
   const branchRef = (id: string) => branchRefs.get(id.replace(/^recent:/, ''));
-  const branchItems = $derived(refs ? branchPopupItems(refs, handlers, branchFolders, toggleFolder).map(item =>
+  // IDEA Git.Branches.List starts with Git.Ongoing.Rebase.Actions while an operation is in progress.
+  const ongoingItems = $derived(ongoing.length ? [...ongoing.map(item => ({ id: `ongoing:${item.action}`, label: item.label, disabled: busy, run: () => { popup = false; requestSequence(item.action); } })),
+    { id: 'ongoing:separator', label: '', kind: 'separator' as const }] : []);
+  const branchItems = $derived(refs ? [...ongoingItems, ...branchPopupItems(refs, handlers, branchFolders, toggleFolder)].map(item =>
     item.id.startsWith(branchSectionPrefix) ? { ...item, icon: branchSectionIcon }
     : item.id.startsWith(branchFolderPrefix) ? { ...item, icon: branchFolderIcon }
     : branchRef(item.id) ? { ...item, icon: branchIcon, badge: branchBadge, trailing: branchTrailing } : item) : []);
@@ -130,6 +140,7 @@
   });
   async function write(command: string, args: Record<string, unknown>) {
     if (!browser.project || busy) return;
+    const shown = dialog;
     busy = true; progress = ''; error = null; outcome = null;
     try {
       const value = await invoke<RemoteOutcome | { kind: string; files?: { display: string }[]; name?: string; detail?: string }>(command, { generation: browser.generation, expected: expected(), ...args });
@@ -139,14 +150,57 @@
       if (value.kind === 'localChanges') {
         affectedFiles = value.files?.map(file => file.display) ?? []; dialog = 'checkout'; mode = 'smart'; error = { key: 'remote.failed', detail: `Checkout would overwrite ${affectedFiles.length} local file(s). Choose Smart Checkout or Force Checkout.` }; return;
       }
-      if (value.kind === 'stashRecovery') {
-        affectedFiles = value.files?.map(file => file.display) ?? []; const detail = 'detail' in value ? value.detail : undefined; error = { key: 'remote.failed', detail: `Working tree recovery is required${detail ? `: ${detail}` : '.'}` };
-      }
-      outcome = value as RemoteOutcome;
       await browser.refresh({ status: true, refs: true, history: true });
-      if (outcome.kind === 'conflicts' || outcome.kind === 'stashRecovery' || outcome.kind === 'interrupted') error = outcome.kind === 'interrupted' ? outcome.error : { key: 'remote.failed', detail: outcome.kind === 'conflicts' ? 'Update stopped because files conflict.' : 'Working tree recovery is required.' };
-    } catch (cause) { error = cause as RemoteError; }
+      // Push keeps its dialog open with the result (user choice); other actions report as notifications.
+      if (shown === 'push') { outcome = value as RemoteOutcome; return; }
+      if (dialog === shown) { dialog = null; affectedFiles = []; }
+      notifyOutcome(command, value as RemoteOutcome);
+    } catch (cause) {
+      if (shown && dialog === shown) error = cause as RemoteError;
+      else { const text = remoteErrorText(cause as RemoteError); notifications.notify({ kind: 'error', title: text.title, detail: [text.detail, text.action].filter(Boolean).join('\n'), group: 'git' }); }
+    }
     finally { busy = false; }
+  }
+  const commandTitle: Record<string, string> = {
+    create_branch: 'Branch created', rename_branch: 'Branch renamed', delete_branch: 'Branch deleted', checkout_branch: 'Checked out',
+    checkout_remote_branch: 'Checked out', fetch: 'Fetch completed', update_project: 'Project updated', abort_update: 'Update aborted',
+  };
+  /** IDEA VcsNotifier: success balloons hide; conflicts and recovery stay with their actions. */
+  function notifyOutcome(command: string, value: RemoteOutcome) {
+    const stash = outcomeStash(value);
+    const abort: NoticeAction = { label: 'Abort Update', run: () => void write('abort_update', { stash }) };
+    if (value.kind === 'completed') notifications.notify({ kind: 'success', title: commandTitle[command] ?? 'Completed', group: 'git' });
+    else if (value.kind === 'conflicts') notifications.notify({ kind: 'warning', title: 'Update stopped with conflicts', detail: operationText('conflicts', { count: value.files.length }), files: value.files.map(file => file.display), actions: [abort], group: 'git' });
+    else if (value.kind === 'interrupted') { const text = remoteErrorText(value.error); notifications.notify({ kind: 'error', title: 'Update interrupted', detail: [text.detail, stash ? `Stash ${stash} was retained.` : ''].filter(Boolean).join('\n'), actions: [abort], group: 'git' }); }
+    else if (value.kind === 'stashRecovery') {
+      const detail = 'detail' in value && typeof value.detail === 'string' ? value.detail : '';
+      notifications.notify({ kind: 'error', title: 'Working tree recovery is required', detail: [`Stash ${value.stash} was retained; inspect it before retrying.`, detail].filter(Boolean).join('\n'), files: value.files.map(file => file.display), group: 'git' });
+    }
+    else if (value.kind === 'push') notifications.notify(value.success ? { kind: 'success', title: 'Push completed', group: 'git' } : { kind: 'error', title: 'Push rejected', detail: value.refs.filter(ref => ref.flag === '!').map(ref => pushRejectionText(ref.rejection)).join(' '), group: 'git' });
+  }
+  /** Abort asks first, as IDEA GitAbortOperationAction.confirmAbort. */
+  function requestSequence(action: SequenceAction) {
+    if (!operation) return;
+    if (action === 'abort') { error = null; dialog = 'abort'; return; }
+    void runSequence(action);
+  }
+  async function runSequence(action: SequenceAction) {
+    const state = operation;
+    if (!browser.project || busy || !state) return;
+    busy = true; progress = ''; error = null;
+    try {
+      const value = await invoke<SequenceOutcome>('sequence', { generation: browser.generation, expected: expected(), action, message: null });
+      if (dialog === 'abort') dialog = null;
+      await browser.refresh({ status: true, refs: true, history: true });
+      const feedback = sequenceFeedback(state.kind, action, value);
+      const next = value.kind === 'completed' ? [] : operationActions(value.operation)
+        .map(item => ({ label: item.label, run: () => requestSequence(item.action) }));
+      notifications.notify({ kind: feedback.kind, title: feedback.title, detail: feedback.detail, files: feedback.files, actions: feedback.offerActions ? next : [], group: 'operation' });
+    } catch (cause) {
+      const text = sequenceErrorText(state.kind, cause as RemoteError);
+      if (dialog === 'abort') error = cause as RemoteError;
+      else notifications.notify({ kind: 'error', title: text.title, detail: text.detail, group: 'operation' });
+    } finally { busy = false; }
   }
   async function submitNew() { if (!name.trim() || !/^[^\s~^:?*\[\\]+$/.test(name.trim())) return; await write('create_branch', { name: name.trim(), start: start.trim() || null, checkout, }); }
   async function submitRename() { if (!newName.trim()) return; await write('rename_branch', { name, newName: newName.trim() }); }
@@ -186,9 +240,17 @@
       browser.commit.message = '';
       browser.commit.amend = false;
       await browser.refresh({ status: true, refs: true, history: true });
-      if (result.push && result.push.kind === 'push' && !result.push.success) error = { key: 'remote.failed', detail: result.push.refs.filter(ref => ref.flag === '!').map(ref => pushRejectionText(ref.rejection)).join(' ') };
+      const feedback = commitPushFeedback(result);
+      const committed = `Commit ${result.hash.slice(0, 8)}`;
+      if (feedback.push === 'success') notifications.notify({ kind: 'success', title: `${committed}: commit and push completed`, group: 'git' });
+      else if (feedback.push === 'recovery') notifications.notify({ kind: 'error', title: `${committed}: index recovery required`, detail: 'Push was not started.', group: 'git' });
+      else if (feedback.push === 'failed') notifications.notify({ kind: 'error', title: `${committed}: commit completed, push failed`,
+        detail: result.push && result.push.kind === 'push' ? result.push.refs.filter(ref => ref.flag === '!').map(ref => pushRejectionText(ref.rejection)).join(' ') : '', group: 'git' });
       if (result.push == null && result.kind === 'committed') oncommitpush();
-    } catch (cause) { error = cause as RemoteError; }
+    } catch (cause) {
+      const text = remoteErrorText(cause as RemoteError);
+      notifications.notify({ kind: 'error', title: text.title, detail: [text.detail, text.action].filter(Boolean).join('\n'), group: 'git' });
+    }
     finally { busy = false; }
   }
   function chooseCommit(hash: string) { previewSelection = hash; }
@@ -206,11 +268,13 @@
 <button class="branch-control" bind:this={branchAnchor} aria-expanded={popup} disabled={!browser.project}
   title={ahead || behind ? `${current} ↑${ahead} ↓${behind}` : current} onclick={() => { popup = !popup; }}>
   <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor"><circle cx="4.5" cy="3.5" r="1.5" /><circle cx="4.5" cy="12.5" r="1.5" /><circle cx="11.5" cy="4.5" r="1.5" /><path d="M4.5 5v6M11.5 6c0 3-7 2.5-7 5" /></svg>
-  <span class="name">{current}</span>
+  <span class="name">{branchText}</span>
   {#if ahead}<svg class="outgoing" viewBox="0 0 16 16" width="12" height="12" aria-label={`↑${ahead}`} fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4 12 12 4M6 4h6v6" /></svg>{/if}
   {#if behind}<svg class="incoming" viewBox="0 0 16 16" width="12" height="12" aria-label={`↓${behind}`} fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 4 4 12M10 12H4V6" /></svg>{/if}
   <svg class="chevron" viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><path d="m4 6 4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.2" /></svg>
 </button>
+{#if ongoing.length}<span class="operation-actions" role="group" aria-label={branchText}>{#each ongoing as item}<button class={item.tone} disabled={busy} onclick={() => requestSequence(item.action)}>{item.label}</button>{/each}</span>{/if}
+{#if busy && !dialog}<span class="header-progress" role="status">{progress || 'Working…'}<progress></progress><button onclick={() => void invoke('cancel_write', { generation: browser.generation })}>Cancel</button></span>{/if}
 <span class="remote-actions">
   <button title={gitText('updateProject')} disabled={!browser.project || busy} onclick={() => handlers.update()}>↓</button>
   <button title={gitText('pushAction')} disabled={!browser.project || busy} onclick={() => openPush(null)}>↑</button>
@@ -258,6 +322,11 @@
       <label><input type="radio" name="update" value="rebase" bind:group={updateStrategy} /> Rebase</label>
       <p class="hint">Default: {updateStrategy}.</p>
       <footer><button onclick={closeDialog}>Cancel</button><button disabled={updateStrategyLoading} onclick={() => void submitUpdate()}>Update</button></footer>
+    {:else if dialog === 'abort' && operation}
+      {@const confirm = abortConfirmation(operation.kind, projectName)}
+      <h2 id="workflow-title">{confirm.title}</h2><p>{confirm.message}</p>
+      <!-- IDEA confirmAbort: Abort is the default button. -->
+      <footer><button onclick={closeDialog}>{operationText('cancel')}</button><button class="default" disabled={busy} onclick={() => void runSequence('abort')}>{operationText('abort')}</button></footer>
     {:else if dialog === 'push'}
       <h2 id="workflow-title">Push Commits to {projectName}</h2>
       <div class="push-grid">
@@ -291,9 +360,8 @@
       {#if pushMenu}<Popup label="Push" anchor={pushMenu} items={[{ id: 'force', label: 'Force Push', run: () => void submitPush(true) }]} onclose={() => { pushMenu = null; }} />{/if}
     {/if}
     {#if busy}<p role="status">{progress || 'Working…'} <progress></progress><button onclick={() => void invoke('cancel_write', { generation: browser.generation })}>Cancel</button></p>{/if}
-    {#if outcome}<p role="status">{outcomeText(outcome)}</p>{#if outcome.kind === 'conflicts' || outcome.kind === 'interrupted'}<button onclick={() => void write('abort_update', { stash: outcomeStash(outcome) })}>Abort Update</button>{/if}{/if}
+    {#if outcome}<p role="status">{outcomeText(outcome)}</p>{/if}
     {#if displayError}<div class="error" role="alert"><strong>{displayError.title}</strong><p>{displayError.detail}</p><p>{displayError.action}</p></div>{/if}
-    {#if result}<p role="status">Commit {result.hash}: {commitPushFeedback(result).push === 'success' ? 'commit and push completed.' : commitPushFeedback(result).push === 'recovery' ? 'commit completed; index recovery required, push was not started.' : commitPushFeedback(result).push === 'failed' ? 'commit completed, push failed.' : 'commit completed; push was not run.'}</p>{/if}
   </dialog>
 {/if}
 
@@ -313,6 +381,13 @@
   .branch-control .outgoing { color: var(--text-header-outgoing); }
   .branch-control .incoming { color: var(--text-header-incoming); }
   .remote-actions { display: inline-flex; gap: 2px; margin-inline-start: auto; }
+  .operation-actions { display: inline-flex; gap: 2px; }
+  .operation-actions button { font: inherit; font-size: var(--font-small-size); border: 0; padding: 2px var(--space-inline); color: var(--text-header); background: var(--toolbar-hover-bg); }
+  .operation-actions .resolve { color: var(--background-primary); background: var(--status-added); }
+  .operation-actions .abort { color: var(--background-primary); background: var(--status-conflicted); }
+  .header-progress { display: inline-flex; align-items: center; gap: var(--space-inline); font-size: var(--font-small-size); }
+  .header-progress progress { width: calc(var(--font-ui-size) * 5); }
+  .header-progress button { font: inherit; border: 0; background: none; color: var(--accent); padding: 0; }
   .workflow-dialog { width: min(760px, 88vw); max-height: 86vh; overflow: auto; color: var(--text-primary); background: var(--popup-bg); border: var(--border-width) solid var(--popup-border); padding: var(--space-panel-x); }
   .workflow-dialog::backdrop { background: #0008; }
   .workflow-dialog.push { width: min(900px, 92vw); }

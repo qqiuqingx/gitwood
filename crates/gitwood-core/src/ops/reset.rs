@@ -1,32 +1,9 @@
 //! Undo the current non-root, non-merge commit without touching index or worktree.
-use super::{context::Context, index::IndexTransaction, snapshot, CommitError, WRITES};
+use super::{context::Context, history_edit, snapshot, CommitError, WRITES};
 use crate::{
     git::{GitError, GitRunner, ReadOperation, RunOptions, WriteCommand},
     repo::preview::{containing_branch_names, protected_remote_branch},
 };
-
-pub async fn undo_in_progress(
-    runner: &GitRunner,
-    options: &RunOptions,
-) -> Result<bool, CommitError> {
-    let context = Context {
-        runner,
-        options: options.clone(),
-    };
-    for name in [
-        "rebase-merge",
-        "rebase-apply",
-        "MERGE_HEAD",
-        "CHERRY_PICK_HEAD",
-        "REVERT_HEAD",
-        "sequencer",
-    ] {
-        if context.git_path(name).await?.try_exists()? {
-            return Ok(true);
-        }
-    }
-    Ok(false)
-}
 
 pub async fn undo_commit(
     runner: &GitRunner,
@@ -39,16 +16,7 @@ pub async fn undo_commit(
         runner,
         options: options.clone(),
     };
-    context.require_root().await?;
-    let tx = IndexTransaction::acquire(context.git_path("index").await?)?;
-    if context.head().await?.as_deref() != Some(expected) {
-        return Err(CommitError::ConcurrentChange);
-    }
-    if undo_in_progress(runner, options).await? {
-        return Err(CommitError::InvalidSelection(
-            "cannot undo during rebase, merge, cherry-pick or revert".into(),
-        ));
-    }
+    let tx = history_edit::require_editable(&context, expected).await?;
     let parents = context
         .read(
             ReadOperation::Log,
@@ -81,7 +49,7 @@ pub async fn undo_commit(
     let worktree = super::snapshot::worktree_at(options, &before.paths)?;
     tx.check_unchanged()?;
     if context.head().await?.as_deref() != Some(expected)
-        || undo_in_progress(runner, options).await?
+        || history_edit::require_no_operation(&context).await.is_err()
         || snapshot(runner, options).await? != before
     {
         return Err(CommitError::ConcurrentChange);

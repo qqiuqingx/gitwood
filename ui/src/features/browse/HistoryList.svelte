@@ -9,7 +9,8 @@
   import type { Rect } from '../../components/popup';
   import type { BranchPopupHandlers } from '../git/model';
   import type { Commit } from './types';
-  import { historyMenuItems } from './history-menu';
+  import { forSelection, historyMenuItems } from './history-menu';
+  import { placeholder } from './browser.svelte';
   import { historyMenuText } from '../../i18n/history-menu';
   import { formatDate, refLabelsByHash } from './model';
   import { browseText as t, prettyDateWords } from '../../i18n/browse';
@@ -20,10 +21,16 @@
   let parentAvailable = $state(false);
   const contextItems = $derived.by(() => {
     const commit = context?.commit;
-    return commit ? historyMenuItems(commit, browser.refs, handlers, parentAvailable,
-      { copy: () => { void copyRevision(commit.hash); },
-        parent: () => { if (commit.parents[0]) void browser.goToCommit(commit.parents[0]); } }, historyMenuText, { info: undoInfo, busy: browser.commit.busy, run: () => { void browser.undoCommit(commit.hash); } }) : [];
+    const count = browser.selection.size;
+    return commit ? forSelection(historyMenuItems(commit, browser.refs, handlers, parentAvailable,
+      { copy: () => { void copyRevision(count > 1 ? orderedSelection().join(' ') : commit.hash); },
+        parent: () => { if (commit.parents[0]) void browser.goToCommit(commit.parents[0]); } }, historyMenuText, { info: undoInfo, busy: browser.commit.busy, run: () => { void browser.undoCommit(commit.hash); } }), count) : [];
   });
+  /** Log order where rows are loaded (IDEA copies in table order); others keep selection order. */
+  function orderedSelection() {
+    const position = new Map([...browser.rows.values()].map(row => [row.commit.hash, row.index]));
+    return [...browser.selection].sort((a, b) => (position.get(a) ?? Number.MAX_SAFE_INTEGER) - (position.get(b) ?? Number.MAX_SAFE_INTEGER));
+  }
   async function copyRevision(hash: string) {
     try { await navigator.clipboard.writeText(hash); } catch (error) { browser.report({ detail: String(error) }); }
   }
@@ -39,9 +46,9 @@
     context = opened; parentAvailable = false; undoInfo = null;
     void Promise.all([
       invoke<{ branches: string[]; total: number; protected: boolean }>('containing_branches', { generation: opened.generation, hash: commit.hash }),
-      invoke<boolean>('undo_in_progress', { generation: opened.generation }),
-    ]).then(([branches, inProgress]) => {
-      if (context !== null && request === contextRequest && browser.generation === opened.generation) undoInfo = { ...branches, inProgress };
+      invoke<UndoInfo['operation']>('operation_state', { generation: opened.generation }),
+    ]).then(([branches, operation]) => {
+      if (context !== null && request === contextRequest && browser.generation === opened.generation) undoInfo = { ...branches, operation };
     }).catch(error => { if (context !== null && request === contextRequest && browser.generation === opened.generation) browser.report(error); });
     if (commit.parents[0]) void browser.historyPosition(commit.parents[0]).then(position => {
       if (context?.commit.hash === opened.commit.hash && context.generation === opened.generation) parentAvailable = position !== null;
@@ -49,15 +56,15 @@
   }
   const rows = $derived([...browser.rows.values()]);
   const graphWidth = $derived(Math.max(58, ...rows.map(row => Math.max(row.column, ...row.segments.flatMap(segment => [segment[1], segment[2]])) * 16 + 32)));
-  const selected = $derived(new Set(browser.selected ? [browser.selected] : []));
+  const selected = $derived(browser.selection.size ? browser.selection : new Set(browser.selected ? [browser.selected] : []));
   const refsByHash = $derived(refLabelsByHash(browser.refs));
 </script>
 <section aria-label={t('log')}>
   <Filters value={browser.filter} refs={browser.refs} apply={value => { void browser.applyFilter(value); }} refresh={() => { void browser.refresh({ status: false, refs: false, history: true }); }} />
   <div class="list" aria-busy={browser.loading}>
-    <List label={t('log')} rowCount={browser.total} minRowWidth={graphWidth + 430} search={false} selectedIds={selected} activeIndex={browser.activeIndex}
-      bind:scrollTop={browser.scrollTop} getRow={index => ({ id: browser.rows.get(index)?.commit.hash ?? `row:${index}`, label: browser.rows.get(index)?.commit.subject ?? t('loading') })}
-      onviewportchange={range => { void browser.viewport(range); }} onselectionchange={(_, index) => { void browser.selectIndex(index); }}
+    <List label={t('log')} multi rowCount={browser.total} minRowWidth={graphWidth + 430} search={false} selectedIds={selected} activeIndex={browser.activeIndex}
+      bind:scrollTop={browser.scrollTop} getRow={index => ({ id: browser.rows.get(index)?.commit.hash ?? `${placeholder}${index}`, label: browser.rows.get(index)?.commit.subject ?? t('loading') })}
+      onviewportchange={range => { void browser.viewport(range); }} onselectionchange={(ids, index) => { void browser.setSelection(ids, index); }}
       oncontextmenu={(event, _, index) => openContext(event, index)}>
       {#snippet row(_, index, query)}
         {@const commit = browser.rows.get(index)?.commit}

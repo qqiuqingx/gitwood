@@ -50,6 +50,9 @@ pub struct StatusSummary {
     pub branch: status::Branch,
     pub changes: usize,
     pub untracked: usize,
+    pub conflicts: usize,
+    /// Merge, rebase, cherry-pick, revert or bisect in progress.
+    pub operation: Option<super::operation::Operation>,
     pub fingerprint: String,
 }
 #[derive(Serialize)]
@@ -211,6 +214,8 @@ impl Lease {
         if before != after {
             return Err(invalid("repository changed while reading status; refresh"));
         }
+        let operation = super::operation::read(&self.repository.git_dir)
+            .map_err(|e| invalid(&format!("repository.operationState: {e}")))?;
         let changes = status
             .staged
             .iter()
@@ -229,6 +234,8 @@ impl Lease {
             },
             changes,
             untracked: status.untracked.len(),
+            conflicts: status.conflicts.len(),
+            operation,
             fingerprint: after.fingerprint,
         };
         let mut data = self.data.lock().await;
@@ -379,6 +386,34 @@ impl Lease {
             .as_ref()
             .ok_or_else(|| invalid("history.layoutRequired"))?;
         Ok(layout.graph().find_commit(hash).map(|id| id.0))
+    }
+    /// Commit IDs of half-open row ranges, for a log multi-selection over rows the UI has
+    /// not loaded. Ranges come from one layout generation and must be in bounds.
+    pub async fn hashes(&self, ranges: &[(u32, u32)]) -> Result<Vec<String>, GitError> {
+        let data = self.data.lock().await;
+        self.ensure_current()?;
+        if data.layout_generation != Some(self.generation) {
+            return Err(invalid("history.layoutRequired"));
+        }
+        let layout = data
+            .layout
+            .as_ref()
+            .ok_or_else(|| invalid("history.layoutRequired"))?;
+        let total = layout.graph().len();
+        let mut result = vec![];
+        for &(start, end) in ranges {
+            if start > end || end as usize > total {
+                return Err(invalid("history.rowOutOfRange"));
+            }
+            for index in start..end {
+                let hash = layout
+                    .graph()
+                    .hash(CommitId(index))
+                    .ok_or_else(|| invalid("history.rowOutOfRange"))?;
+                result.push(hash);
+            }
+        }
+        Ok(result)
     }
     pub async fn details(&self, hash: &str) -> Result<Commit, GitError> {
         details::page(&self.runner, &self.options, &[hash.into()], true)

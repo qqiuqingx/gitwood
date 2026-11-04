@@ -88,6 +88,16 @@ impl Context<'_> {
             Err(err) => Err(err),
         }
     }
+    /// The worktree's own Git directory, where in-progress operation state lives.
+    pub async fn git_dir(&self) -> Result<PathBuf, CommitError> {
+        let mut bytes = self
+            .read(ReadOperation::RevParse, &["--absolute-git-dir"])
+            .await?;
+        if bytes.last() == Some(&b'\n') {
+            bytes.pop();
+        }
+        Ok(PathBuf::from(path_string(bytes)?))
+    }
     pub async fn git_path(&self, name: &str) -> Result<PathBuf, CommitError> {
         let bytes = self
             .read(ReadOperation::RevParse, &["--git-path", name])

@@ -19,4 +19,9 @@ pub mod branch;
 pub mod remote;
 
 mod reset;
-pub use reset::{undo_commit, undo_in_progress};
+pub use reset::undo_commit;
+
+mod history_edit;
+pub use history_edit::operation_state;
+
+pub mod sequence;

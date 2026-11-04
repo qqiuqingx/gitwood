@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { onMount, untrack } from 'svelte';
   import { invoke, isTauri } from '@tauri-apps/api/core';
   import { listen } from '@tauri-apps/api/event';
   import { listenWindowEvent } from './windowEvents';
@@ -15,6 +15,10 @@
   import ErrorDialog from './features/browse/ErrorDialog.svelte';
   import GitWorkflow from './features/git/GitWorkflow.svelte';
   import CredentialDialog from './features/git/CredentialDialog.svelte';
+  import Notifications from './features/notifications/Notifications.svelte';
+  import { notifications } from './features/notifications/center.svelte';
+  import { operationLabel } from './features/git/operation';
+  import { operationText } from './i18n/operation';
   import { withoutCredential, type CredentialKey, type CredentialRequest } from './features/git/credential';
   import ProjectWidget from './features/projects/ProjectWidget.svelte';
   import OpenProjectDialog from './features/projects/OpenProjectDialog.svelte';
@@ -23,6 +27,8 @@
   import { browseText as b } from './i18n/browse';
   const browser = new RepositoryBrowser();
   const projects = new ProjectOpening(browser);
+  // Notices and their actions belong to the repository they were raised for.
+  $effect(() => { void browser.project; untrack(() => notifications.clear()); });
   let workflow = $state<GitWorkflow>();
   let browseReady = $state(false);
   // Waiting prompts of this window, oldest first. Rust closes each one when it is answered
@@ -206,7 +212,7 @@
         {/snippet}
       </Splitter></div>
     </div>
-    <footer><span>{browser.project.root}</span>{#if browser.status}<span>{browser.status.changes} {b('changes')} · {browser.status.untracked} {b('unversioned')}</span>{/if}{#if browser.commit.busy}<span role="status">{browser.commit.task}</span><progress aria-label={c('running')}></progress><button onclick={()=>void invoke('cancel_write',{generation:browser.generation}).catch(error=>browser.report(error))}>{c('cancel')}</button>{/if}{#if browser.loading}<span>{b('loading')}</span>{/if}</footer>
+    <footer><span>{browser.project.root}</span>{#if browser.status?.operation}<span class="operation" role="status">{operationLabel(browser.status.operation, browser.status.branch.head)}{#if browser.status.conflicts} · {operationText('conflicts', { count: browser.status.conflicts })}{/if}</span>{/if}{#if browser.status}<span>{browser.status.changes} {b('changes')} · {browser.status.untracked} {b('unversioned')}</span>{/if}{#if browser.commit.busy}<span role="status">{browser.commit.task}</span><progress aria-label={c('running')}></progress><button onclick={()=>void invoke('cancel_write',{generation:browser.generation}).catch(error=>browser.report(error))}>{c('cancel')}</button>{/if}{#if browser.loading}<span>{b('loading')}</span>{/if}</footer>
   {:else}
     <section class="welcome"><h1>{b('welcome')}</h1><p>{browser.opening ? b('opening') : b('chooseRepository')}</p>
       <button onclick={chooseRepository} disabled={browser.opening}>{b('open')}</button>
@@ -217,6 +223,7 @@
   {/if}
   {#if browser.commit.result?.kind === 'recovery'}<RecoveryDialog result={browser.commit.result} close={()=>{browser.commit.result=null;}} />{/if}
 {#if browser.error}<ErrorDialog error={browser.error} projectOpen={!!browser.project} close={() => { browser.error = null; }} />{/if}
+<Notifications center={notifications} />
 <CredentialDialog request={credentials[0] ?? null} answer={value => { void answerCredential(value); }} />
 {#if projects.pending}<OpenProjectDialog path={projects.pending} choose={target => { void projects.choose(target); }} cancel={() => projects.cancel()} />{/if}
 </main>
@@ -238,6 +245,7 @@
   .log h2 span { margin-inline-start: var(--space-panel-x); border-bottom: var(--focus-width) solid var(--tab-active-border); }
   .log-body { flex: 1; min-height: 0; }
   footer { font-size: var(--font-small-size); background: var(--background-secondary); color: var(--text-secondary); padding-block: 0; border-top: var(--border-width) solid var(--separator); }
+  footer .operation { color: var(--status-modified); }
   footer span:first-child { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .welcome { flex: 1; min-height: 0; width: min(80%, calc(var(--font-ui-size) * 50)); margin: auto; padding: var(--space-panel-x); display: flex; flex-direction: column; align-items: start; justify-content: center; }
   .welcome h1 { font-size: calc(var(--font-ui-size) * 1.5); }

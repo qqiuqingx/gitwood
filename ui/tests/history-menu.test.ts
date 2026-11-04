@@ -41,7 +41,7 @@ it('disables navigation for roots/unavailable parents and branches without refs/
 });
 
 it('enables undo only for an eligible HEAD with complete branch/state information', () => {
-  const undo = (selected = commit, references: References | null = refs, info: import('../src/features/browse/history-menu').UndoInfo | null = { branches: [], total: 0, protected: false, inProgress: false }) =>
+  const undo = (selected = commit, references: References | null = refs, info: import('../src/features/browse/history-menu').UndoInfo | null = { branches: [], total: 0, protected: false, operation: null }) =>
     historyMenuItems(selected, references, handlers, true, actions, key => key, { info, run: actions.copy, busy: false }).find(item => item.id === 'undo')!;
   expect(undo().disabled).toBe(false);
   expect(undo({ ...commit, hash: 'other' }).hint).toBe('undoHead');
@@ -50,18 +50,18 @@ it('enables undo only for an eligible HEAD with complete branch/state informatio
   expect(undo({ ...commit, parents: ['a', 'b'] }).hint).toBe('undoMerge');
   expect(undo(commit, refs, null).hint).toBe('undoLoading');
   expect(undo(commit, null).hint).toBe('undoLoading');
-  expect(undo(commit, refs, { branches: [], total: 0, protected: false, inProgress: true }).hint).toBe('undoState');
+  expect(undo(commit, refs, { branches: [], total: 0, protected: false, operation: { kind: 'rebase', branch: 'main', step: 1, total: 2 } }).hint).toBe('undoState');
   for (const branch of ['refs/remotes/origin/main', 'refs/remotes/upstream/master']) {
-    expect(undo(commit, refs, { branches: [branch], total: 1, protected: false, inProgress: false }).hint).toBe('undoProtected');
+    expect(undo(commit, refs, { branches: [branch], total: 1, protected: false, operation: null }).hint).toBe('undoProtected');
   }
   for (const branch of ['refs/heads/main', 'refs/remotes/origin/topic', 'refs/remotes/origin/not-main', 'refs/remotes/origin/topic/main']) {
-    expect(undo(commit, refs, { branches: [branch], total: 1, protected: false, inProgress: false }).disabled).toBe(false);
+    expect(undo(commit, refs, { branches: [branch], total: 1, protected: false, operation: null }).disabled).toBe(false);
   }
 });
 it('uses the full backend protection result even when the visible containing branches are capped', () => {
   for (const protectedBranch of [true, false]) {
     const item = historyMenuItems(commit, refs, handlers, true, actions, key => key, {
-      info: { branches: [], total: 250, protected: protectedBranch, inProgress: false }, run: actions.copy, busy: false,
+      info: { branches: [], total: 250, protected: protectedBranch, operation: null }, run: actions.copy, busy: false,
     }).find(item => item.id === 'undo')!;
     expect(item.disabled).toBe(protectedBranch);
   }

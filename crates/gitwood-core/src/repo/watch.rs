@@ -115,6 +115,13 @@ fn classify(repo: &Repository, path: &Path) -> Refresh {
             if p == Path::new("config") || p == Path::new("config.worktree") {
                 return Refresh::all();
             }
+            // Merge / rebase / cherry-pick state is shown with the status summary.
+            if dir == &repo.git_dir && super::operation::is_state_path(p) {
+                return Refresh {
+                    status: true,
+                    ..Refresh::default()
+                };
+            }
             return Refresh::default();
         }
     }
@@ -157,6 +164,9 @@ mod tests {
         }
         let r = classify(&repo, &root.join(".git/worktrees/linked/index"));
         assert!(r.status && !r.refs && !r.history);
+        let r = classify(&repo, &root.join(".git/worktrees/linked/MERGE_HEAD"));
+        assert!(r.status && !r.refs && !r.history);
+        assert!(!classify(&repo, &root.join(".git/MERGE_HEAD")).any());
         assert!(classify(&repo, &root.join("source.rs")).status);
     }
 }
