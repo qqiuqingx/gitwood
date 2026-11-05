@@ -34,6 +34,9 @@ pub struct Lease {
 pub(super) struct Data {
     pub(super) comparison: Option<Arc<super::comparison::Comparison>>,
     pub(super) history_tree: Option<Arc<super::history_browser::HistoryTree>>,
+    pub(super) file_history: Option<Arc<super::file_history::FileHistory>>,
+    pub(super) annotation: Option<Arc<super::annotate::Annotation>>,
+    pub(super) annotation_cancel: Option<CancellationToken>,
     layout: Option<GraphLayout>,
     /// Per layout row: reachable from the current branch (empty = no highlight).
     current_branch: Vec<bool>,

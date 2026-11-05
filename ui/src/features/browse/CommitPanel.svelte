@@ -19,8 +19,10 @@
   import Tabs from '../../components/Tabs.svelte';
   import PagedFileTree from './PagedFileTree.svelte';
   import type { RepositoryBrowser } from './browser.svelte';
+  import { currentFileItems, type CurrentFileAction } from '../git/current-file-menu';
+  import { currentFileText } from '../../i18n/current-file';
   import { browseText as t } from '../../i18n/browse';
-  let { browser, refresh, commitPush = () => {}, flat = $bindable(true), preview = $bindable(true) }: { browser: RepositoryBrowser; refresh: () => void; commitPush?: () => void; flat?: boolean; preview?: boolean } = $props();
+  let { browser, refresh, commitPush = () => {}, oncurrentfile = () => {}, flat = $bindable(true), preview = $bindable(true) }: { browser: RepositoryBrowser; refresh: () => void; commitPush?: () => void; oncurrentfile?: (action: CurrentFileAction, path: import('./types').RepoPath, revision?: string) => void; flat?: boolean; preview?: boolean } = $props();
   let selectedFile = $state<FileRow>();
   let optionsAnchor = $state<HTMLButtonElement | null>(null);
   function previewFile(row: FileRow) {
@@ -100,7 +102,7 @@
       { id:'context-delete', label:t('delete'), disabled:!canFile || session.busy, run:()=>actions.run('ChangesView.Delete') }, add,
       { id:'context-refresh', label:t('refresh'), disabled:session.busy, run:()=>actions.run('ChangesView.Refresh') },
       { id:'context-separator', label:'', kind:'separator' },
-      { id:'context-git', label:t('gitSubmenu'), children:[commit, revert, add] }];
+      { id:'context-git', label:t('gitSubmenu'), children:[commit, revert, add, { id:'context-current-file', label:currentFileText('menu'), children:currentFileItems(action => { if (row?.path) oncurrentfile(action, row.path); }, undefined, canFile && row?.status !== '?') }] }];
   });
 
   const ready = $derived(canCommit(session.message,session.count + (browser.status?.operation?.kind === 'merge' ? 1 : 0),session.amend,session.busy || !!browser.status?.conflicts || ['rebase','applyMailbox'].includes(browser.status?.operation?.kind ?? '')));

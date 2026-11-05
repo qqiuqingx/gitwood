@@ -208,7 +208,7 @@
       <div class="panes"><Splitter axis="y" label={t('workspaceLog')} minFirst={240} minSecond={240} bind:ratio={layout.ratios.workspaceLog} secondVisible={layout.logVisible}>
         {#snippet first()}
           <Splitter label={t('commitDiff')} minFirst={220} minSecond={420} bind:ratio={layout.ratios.commitDiff} firstVisible={layout.commitVisible}>
-            {#snippet first()}<CommitPanel bind:this={commitPanel} {browser} bind:flat={layout.commitFlat} bind:preview={layout.commitPreview} refresh={() => { void browser.refresh({ status: true, refs: false, history: false }); }} commitPush={() => workflow?.commitAndPush()} />{/snippet}
+            {#snippet first()}<CommitPanel bind:this={commitPanel} {browser} oncurrentfile={(action,path,revision) => workflow?.showCurrentFileAction(action,path,revision)} bind:flat={layout.commitFlat} bind:preview={layout.commitPreview} refresh={() => { void browser.refresh({ status: true, refs: false, history: false }); }} commitPush={() => workflow?.commitAndPush()} />{/snippet}
             {#snippet second()}<Preview {browser} bind:ratio={layout.ratios.diffVersions} />{/snippet}
           </Splitter>
         {/snippet}
@@ -219,7 +219,7 @@
               {#snippet second()}
                 <Splitter label={t('commitsInformation')} minFirst={260} minSecond={220} bind:ratio={layout.ratios.commitsInformation}>
                   {#snippet first()}<HistoryList {browser} handlers={workflow?.branchHandlers()} />{/snippet}
-                  {#snippet second()}<Information {browser} label={t('filesDetails')} bind:ratio={layout.ratios.filesDetails} />{/snippet}
+                  {#snippet second()}<Information {browser} label={t('filesDetails')} oncurrentfile={(action,path,revision) => workflow?.showCurrentFileAction(action,path,revision)} bind:ratio={layout.ratios.filesDetails} />{/snippet}
                 </Splitter>
               {/snippet}
             </Splitter>

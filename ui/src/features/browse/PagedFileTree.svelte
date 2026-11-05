@@ -84,13 +84,20 @@
       return searches.accepts(ticket) ? index : -1;
     } catch (error) { if (searches.accepts(ticket)) onerror(error); return -1; }
   }
+  function contextMenu(event: MouseEvent, row: FileRow) {
+    if (!row.path) return;
+    if (!selected.has(row.id)) selected = new Set([row.id]);
+    onselectedids?.([...selected]);
+    onselect?.(row);
+    oncontextmenu?.(event, row);
+  }
 </script>
 <section>
   {#if !changes}<h3>{t('files')} <span>{files}</span></h3>{/if}
   <div class="tree"><Tree bind:scrollTop bind:activeIndex onviewportchange={viewport => { if (viewport.rowHeight > 0) rowHeight = viewport.rowHeight; }} searchRows={search} onquerychange={query => { if (!query) searches.invalidate(); }} label={changes ? t('changes') : t('files')} visibleRows={{ count: total, getRow: rowAt }} {expanded} onexpandedchange={ids => { expanded = ids; }}
     onactivate={node => { if((node as FileRow).path) { onselect?.(node as FileRow); onopen?.(); } }}
     onspace={ontoggle ? ids=>void toggleSelected(ids) : undefined}
-    bind:selectedIds={selected} oncontextmenu={(event, row) => oncontextmenu?.(event, row as FileRow)} onselectionchange={(_, row) => {
+    bind:selectedIds={selected} oncontextmenu={(event, row) => contextMenu(event, row as FileRow)} onselectionchange={(_, row) => {
       onselectedids?.([...selected]);
       if (row && (row as FileRow).path) onselect?.(row as FileRow);
       if (row?.id.startsWith('loading:')) {

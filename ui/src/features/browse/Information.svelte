@@ -6,11 +6,20 @@
   import { detailsDateTime, refLabelsByHash } from './model';
   import type { RepositoryBrowser } from './browser.svelte';
   import { browseText as t } from '../../i18n/browse';
-  let { browser, ratio = $bindable(0.6), label }: { browser: RepositoryBrowser; ratio?: number; label: string } = $props();
+  import Popup from '../../components/Popup.svelte';
+  import type { Rect } from '../../components/popup';
+  import { currentFileItems, type CurrentFileAction } from '../git/current-file-menu';
+  import { currentFileText } from '../../i18n/current-file';
+  let { browser, ratio = $bindable(0.6), label, oncurrentfile = () => {} }: { browser: RepositoryBrowser; ratio?: number; label: string; oncurrentfile?: (action: CurrentFileAction, path: import('./types').RepoPath, revision?: string) => void } = $props();
   let branches = $state<{ branches: string[]; total: number } | null>(null);
   let expanded = $state(false);
   // IDEA expands every node of the commit changes tree for each newly selected commit.
   let files = $state<ReadonlySet<string>>(new Set(['*']));
+  let context = $state<{ anchor: Rect; path: import('./types').RepoPath; revision: string } | null>(null);
+  const contextItems = $derived.by(() => {
+    const target = context;
+    return target ? [{ id: 'current-file', label: currentFileText('menu'), children: currentFileItems(action => oncurrentfile(action, target.path, target.revision)) }] : [];
+  });
   $effect.pre(() => { void browser.selected; files = new Set(['*']); });
   const labels = $derived(browser.details ? refLabelsByHash(browser.refs).get(browser.details.hash) ?? [] : []);
   const when = $derived(browser.details ? detailsDateTime(browser.details.author_time) : null);
@@ -27,7 +36,7 @@
 </script>
 <Splitter axis="y" {label} minFirst={90} minSecond={90} bind:ratio>
   {#snippet first()}
-    <PagedFileTree onselect={row => { if (row.path) browser.previewFile = { path: row.path, staged: row.staged, unstaged: row.unstaged, hash: browser.selected }; }} hash={browser.selected} root={browser.project ? projectName(browser.project.root) : ''} bind:expanded={files} generation={browser.generation} onerror={error => browser.report(error)} />
+    <PagedFileTree onselect={row => { if (row.path) browser.previewFile = { path: row.path, staged: row.staged, unstaged: row.unstaged, hash: browser.selected }; }} oncontextmenu={(event,row) => { if (!row.path || !browser.selected) return; event.preventDefault(); context = { anchor: { x: event.clientX, y: event.clientY, width: 0, height: 0 }, path: row.path, revision: browser.selected }; }} hash={browser.selected} root={browser.project ? projectName(browser.project.root) : ''} bind:expanded={files} generation={browser.generation} onerror={error => browser.report(error)} />
   {/snippet}
   {#snippet second()}
     <div class="details">
@@ -40,6 +49,7 @@
     </div>
   {/snippet}
 </Splitter>
+{#if context}<Popup items={contextItems} label={currentFileText('menu')} anchor={context.anchor} onclose={() => { context = null; }} />{/if}
 <style>
   .details { height: 100%; overflow: auto; padding: var(--space-panel-y) var(--space-panel-x); font-size: var(--font-small-size); }
   p { margin: 0 0 var(--space-inline); white-space: pre-wrap; overflow-wrap: anywhere; }

@@ -35,12 +35,16 @@
   import type { NoticeAction } from '../notifications/model';
   import { operationText } from '../../i18n/operation';
   import { historyMenuText as ht } from '../../i18n/history-menu';
+  import CurrentFileDialog from './CurrentFileDialog.svelte';
+  import type { CurrentFileAction } from './current-file-menu';
+  import type { RepoPath } from '../browse/types';
 
   let { browser, oncommitpush }: { browser: RepositoryBrowser; oncommitpush: () => void } = $props();
   let integration = $state<{ kind: Integration['kind']; seed: string } | null>(null);
   let comparison = $state<{ left: string; right: string | null; working: boolean } | null>(null);
   let upstreamBranch = $state<string | null>(null);
   let historyTreeRevision = $state<string | null>(null);
+  let currentFile = $state<{ action: CurrentFileAction; path: RepoPath; revision: string } | null>(null);
   let historyChildren = $state<string[]>([]);
   let stashCreateOpen = $state(false), stashManagerOpen = $state(false);
   let historyTarget = $state('');
@@ -55,11 +59,15 @@
   let remoteTagRemote = $state('');
   $effect(() => {
     browser.project?.root;
-    untrack(() => { integration = null; comparison = null; upstreamBranch = null; historyTreeRevision = null; historyChildren = []; });
+    untrack(() => { integration = null; comparison = null; upstreamBranch = null; historyTreeRevision = null; currentFile = null; historyChildren = []; });
   });
   const canIntegrate = () => integrationEnabled(browser.refs, browser.status?.operation, busy || browser.commit.busy || !!integration || !!comparison || upstreamBranch !== null, browser.status?.conflicts, browser.status?.update_stash);
   const integrationActions = ['merge', 'rebase', 'pull'] as const;
   const actions = createActionRegistry();
+  let currentFileTarget = $state<{ path: RepoPath; revision: string } | null>(null);
+  for (const [action, id] of [['history', 'Git.CurrentFile.ShowHistory'], ['annotate', 'Git.CurrentFile.Annotate'], ['annotatePrevious', 'Git.CurrentFile.AnnotatePreviousRevision'], ['compareRevision', 'Git.CurrentFile.CompareRevision'], ['compareBranch', 'Git.CurrentFile.CompareBranch']] as const) {
+    actions.register(id, { run: () => { if (currentFileTarget) currentFile = { action, ...currentFileTarget }; }, enabled: () => !!browser.project && !!currentFileTarget && !busy });
+  }
   const registeredHistoryActions: Partial<Record<HistoryAction, string>> = {
     cherryPick: 'Git.CherryPick', revert: 'Git.Revert', reset: 'Git.ResetCurrentBranchToHere',
     checkoutRevision: 'Git.CheckoutRevision', newTag: 'Git.NewTag', deleteTag: 'Git.DeleteTag',
@@ -98,6 +106,10 @@
   export function runAction(id: string, target = '') {
     actionTarget = target;
     try { return actions.run(id); } finally { actionTarget = ''; }
+  }
+  export function showCurrentFileAction(action: CurrentFileAction, path: RepoPath, revision = 'HEAD') {
+    currentFileTarget = { path, revision };
+    actions.run(`Git.CurrentFile.${action[0].toUpperCase()}${action.slice(1)}`);
   }
   function dispatchHistoryAction(action: HistoryAction, hash: string, selected: string[]) {
     const id = registeredHistoryActions[action];
@@ -505,6 +517,7 @@
 {#if integration}{#key JSON.stringify(integration)}<IntegrationDialog {browser} kind={integration.kind} seed={integration.seed} bind:busy bind:progress onclose={() => { integration = null; }} onresult={value => notifyIntegration(value)} />{/key}{/if}
 {#if comparison}<ComparisonDialog {browser} left={comparison.left} right={comparison.right} working={comparison.working} onclose={() => { comparison = null; }} />{/if}
 {#if historyTreeRevision}<HistoryTreeDialog {browser} revision={historyTreeRevision} onclose={() => { historyTreeRevision = null; }} />{/if}
+{#if currentFile}<CurrentFileDialog {browser} action={currentFile.action} path={currentFile.path} revision={currentFile.revision} onclose={() => { currentFile = null; }} oncommit={hash => { currentFile = null; void browser.goToCommit(hash); }} onprevious={(path,revision) => showCurrentFileAction('annotatePrevious', path, revision)} />{/if}
 {#if historyChildren.length}<HistoryChildrenDialog children={historyChildren} onselect={hash => { historyChildren = []; void browser.goToCommit(hash); }} onclose={() => { historyChildren = []; }} />{/if}
 {#if upstreamBranch !== null}<UpstreamDialog {browser} name={upstreamBranch} bind:busy onclose={() => { upstreamBranch = null; }} />{/if}
 {#if stashCreateOpen}<StashChangesDialog {browser} onclose={() => { stashCreateOpen = false; }} />{/if}

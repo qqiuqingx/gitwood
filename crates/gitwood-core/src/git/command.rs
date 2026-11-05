@@ -20,6 +20,7 @@ pub enum ReadOperation {
     MergeBase,
     StashShow,
     StashList,
+    Blame,
 }
 
 impl ReadOperation {
@@ -40,6 +41,7 @@ impl ReadOperation {
             Self::MergeBase => "merge-base",
             Self::StashShow => "stash",
             Self::StashList => "stash",
+            Self::Blame => "blame",
         }
     }
     fn is_diff(self) -> bool {
@@ -112,6 +114,9 @@ impl GitCommand {
                 result.push(read.operation.name().into());
                 if read.operation.is_diff() {
                     result.extend(["--no-ext-diff".into(), "--no-textconv".into()]);
+                }
+                if matches!(read.operation, ReadOperation::Blame) {
+                    result.push("--no-textconv".into());
                 }
                 if read.operation.is_diff() || matches!(read.operation, ReadOperation::Status) {
                     result.push("--ignore-submodules=all".into());

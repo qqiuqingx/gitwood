@@ -2,7 +2,7 @@
 use super::{invalid, os, session::Lease, status, RepoPath};
 use crate::{
     diff::*,
-    git::{GitError, ReadCommand, ReadOperation},
+    git::{GitError, ReadCommand, ReadOperation, RunOptions},
     history::details,
 };
 use serde::{Deserialize, Serialize};
@@ -183,6 +183,105 @@ impl Lease {
             conflicted: false,
         })
     }
+
+    pub async fn compare_file_with_revision(
+        &self,
+        path: &RepoPath,
+        target: &str,
+    ) -> Result<Preview, GitError> {
+        if !super::valid_repo_path(path) || path.bytes.contains(&0) {
+            return Err(invalid("comparison.invalidPath"));
+        }
+        let revision = crate::ops::integrate::pin(&self.runner, &self.options, target).await?;
+        let mut options = self.options.clone();
+        options
+            .env
+            .insert("GIT_LITERAL_PATHSPECS".into(), "1".into());
+        let target_path = file_path_at_revision(self, path, &revision, &options).await?;
+        let current_path = PathBuf::from(os(path.bytes.clone()));
+        let current_file = self.repository.root.join(&current_path);
+        let left = match std::fs::symlink_metadata(&current_file) {
+            Ok(_) => Some(ContentSource::Worktree {
+                path: &current_path,
+            }),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+            Err(error) => return Err(invalid(&error.to_string())),
+        };
+        self.preview(
+            left,
+            target_path
+                .as_deref()
+                .map(|target_path| ContentSource::Commit {
+                    revision: &revision,
+                    path: target_path,
+                }),
+            "Working tree",
+            &revision,
+        )
+        .await
+    }
+}
+
+async fn file_path_at_revision(
+    lease: &Lease,
+    path: &RepoPath,
+    revision: &str,
+    options: &RunOptions,
+) -> Result<Option<PathBuf>, GitError> {
+    let history = lease
+        .file_history_open_with_options(path, "HEAD", options)
+        .await?;
+    let previous_path = lease
+        .data
+        .lock()
+        .await
+        .file_history
+        .as_ref()
+        .filter(|value| value.id == history.id)
+        .and_then(|value| value.rows.iter().find(|row| row.hash == revision))
+        .map(|row| PathBuf::from(os(row.path.bytes.clone())));
+    if previous_path.is_some() {
+        return Ok(previous_path);
+    }
+    let args = ["-r", "--name-status", "-M", "-z", "--no-commit-id"]
+        .into_iter()
+        .map(Into::into)
+        .chain([
+            revision.to_owned().into(),
+            "HEAD".into(),
+            "--".into(),
+            os(path.bytes.clone()),
+        ])
+        .collect::<Vec<std::ffi::OsString>>();
+    let output = lease
+        .runner
+        .run(
+            ReadCommand::new(ReadOperation::DiffTree).args(args),
+            options,
+        )
+        .await?;
+    let mut fields = output
+        .stdout
+        .split(|byte| *byte == 0)
+        .filter(|field| !field.is_empty());
+    let mut target = path.bytes.clone();
+    let mut exists = true;
+    while let Some(status) = fields.next() {
+        let first = fields
+            .next()
+            .ok_or_else(|| invalid("comparison.invalidFileStatus"))?;
+        if status.first() == Some(&b'R') {
+            let current = fields
+                .next()
+                .ok_or_else(|| invalid("comparison.invalidFileStatus"))?;
+            if current == path.bytes {
+                target = first.to_vec();
+            }
+        } else if status.first() == Some(&b'A') && first == path.bytes {
+            exists = false;
+        }
+    }
+    Ok(exists.then(|| PathBuf::from(os(target))))
 }
 
 pub(crate) async fn containing_branch_names(

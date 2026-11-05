@@ -31,6 +31,14 @@ pub struct RepoPath {
     pub bytes: Vec<u8>,
     pub display: String,
 }
+pub(crate) fn valid_repo_path(path: &RepoPath) -> bool {
+    !path.bytes.is_empty()
+        && !path.bytes.starts_with(b"/")
+        && path
+            .bytes
+            .split(|byte| *byte == b'/')
+            .all(|part| !part.is_empty() && part != b"." && part != b"..")
+}
 impl RepoPath {
     pub fn new(bytes: &[u8]) -> Self {
         Self {
@@ -85,5 +93,7 @@ pub mod write;
 
 mod conflicts;
 
+pub mod annotate;
 pub mod comparison;
+pub mod file_history;
 mod integrate;

@@ -49,6 +49,81 @@ pub async fn history_tree_diff(
     sessions.check(&lease)?;
     Ok(result?)
 }
+
+#[tauri::command]
+pub async fn file_history_open(
+    sessions: WindowSession,
+    generation: u64,
+    path: RepoPath,
+    revision: String,
+) -> Result<gitwood_core::repo::file_history::FileHistorySummary, RemoteError> {
+    let lease = sessions.lease(generation)?;
+    let result = lease.file_history_open(&path, &revision).await;
+    sessions.check(&lease)?;
+    Ok(result?)
+}
+
+#[tauri::command]
+pub async fn file_history_page(
+    sessions: WindowSession,
+    generation: u64,
+    id: String,
+    start: usize,
+    end: usize,
+) -> Result<gitwood_core::repo::file_history::FileHistoryPage, RemoteError> {
+    let lease = sessions.lease(generation)?;
+    let result = lease.file_history_page(&id, start, end).await;
+    sessions.check(&lease)?;
+    Ok(result?)
+}
+
+#[tauri::command]
+pub async fn annotate_open(
+    sessions: WindowSession,
+    generation: u64,
+    path: RepoPath,
+    revision: String,
+) -> Result<gitwood_core::repo::annotate::AnnotationSummary, RemoteError> {
+    let lease = sessions.lease(generation)?;
+    let result = lease.annotate_open(&path, &revision).await;
+    sessions.check(&lease)?;
+    Ok(result?)
+}
+
+#[tauri::command]
+pub async fn annotate_page(
+    sessions: WindowSession,
+    generation: u64,
+    id: String,
+    start: usize,
+    end: usize,
+) -> Result<gitwood_core::repo::annotate::AnnotationPage, RemoteError> {
+    let lease = sessions.lease(generation)?;
+    let result = lease.annotate_page(&id, start, end).await;
+    sessions.check(&lease)?;
+    Ok(result?)
+}
+
+#[tauri::command]
+pub async fn annotate_cancel(sessions: WindowSession, generation: u64) -> Result<(), RemoteError> {
+    let lease = sessions.lease(generation)?;
+    lease.annotate_cancel().await;
+    sessions.check(&lease)?;
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn compare_file_with_revision(
+    sessions: WindowSession,
+    generation: u64,
+    path: RepoPath,
+    revision: String,
+) -> Result<gitwood_core::repo::preview::Preview, RemoteError> {
+    let lease = sessions.lease(generation)?;
+    let result = lease.compare_file_with_revision(&path, &revision).await;
+    sessions.check(&lease)?;
+    Ok(result?)
+}
 #[tauri::command]
 pub async fn integrate(
     app: AppHandle,
