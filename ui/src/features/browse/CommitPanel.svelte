@@ -87,7 +87,7 @@
       ]} /></div>{/if}
       <div class="files"><PagedFileTree selection={session.selection} oncount={count=>{session.count=count;}} onselectedids={selected=>{ids=selected;}} onopen={openDiff} ontoggle={(id,state)=>{if(!session.busy)session.selection=toggleRule(session.selection,id,state);}} onselect={selectFile} changes generation={browser.statusGeneration} revision={browser.statusRevision} {flat} bind:expanded onerror={error => browser.report(error)} /></div>
       <div class="form">
-        <label><input type="checkbox" checked={session.amend} disabled={session.busy || browser.status?.branch.oid === '(initial)'} onclick={event=>{event.preventDefault();void amend();}} /> {t('amend')}</label>
+        <label><input type="checkbox" checked={session.amend} disabled={session.busy || browser.status?.branch.oid === '(initial)'} onchange={event=>{const box=event.currentTarget;void amend().finally(()=>{box.checked=session.amend;});}} /> {t('amend')}</label>
         <button title="Ctrl+M" disabled={session.busy} onclick={()=>{void showHistory();}}>{c('history')}</button>
         {#if history}<select bind:this={historySelect} aria-label={c('history')} size={Math.max(2,Math.min(6,session.history.length))} onchange={event=>{session.message=event.currentTarget.value;history=false;messageBox.focus();}}><option disabled selected>{c('history')}</option>{#each session.history as message}<option value={message}>{message}</option>{/each}</select>{/if}
         <textarea bind:this={messageBox} aria-label={t('commitMessage')} placeholder={t('commitMessage')} bind:value={session.message} disabled={session.busy}></textarea>
