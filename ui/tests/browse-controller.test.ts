@@ -81,3 +81,15 @@ it('retains refresh events emitted with the new generation while layout IPC is i
   expect(browser.status?.changes).toBe(1);
   expect(ipc).toHaveBeenCalledWith('repository_status', { generation: 8 });
 });
+it('drops the preview of a file that is no longer changed and reports other preview errors', () => {
+  const browser = new RepositoryBrowser();
+  const file = { path: { bytes: [66], display: 'B' }, staged: false, unstaged: true, hash: '' };
+  browser.previewFile = file;
+  browser.previewFailed(file, { key: 'repository.noLongerChanged', detail: 'file is no longer changed' });
+  expect(browser.previewFile).toBeNull(); expect(browser.error).toBeNull();
+  const next = { ...file, path: { bytes: [67], display: 'C' } };
+  browser.previewFile = next; browser.previewFailed(file, { key: 'repository.noLongerChanged' });
+  expect(browser.previewFile).toBe(next);
+  browser.previewFailed(next, { key: 'repository.writeError', detail: 'boom' });
+  expect(browser.previewFile).toBe(next); expect(browser.error).toEqual({ key: 'repository.writeError', detail: 'boom' });
+});

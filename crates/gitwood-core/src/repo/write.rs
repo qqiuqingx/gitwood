@@ -168,7 +168,7 @@ impl Lease {
         inclusion::entries(&status::read(&self.runner, &self.options).await?)
             .into_iter()
             .find(|(e, _)| e.path.bytes == path.bytes)
-            .ok_or_else(|| CommitError::InvalidSelection("file no longer changed".into()))
+            .ok_or(CommitError::NoLongerChanged)
     }
     async fn selection_content(
         &self,

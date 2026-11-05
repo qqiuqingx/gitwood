@@ -99,6 +99,13 @@ export class RepositoryBrowser {
     const value: RepositoryError = typeof error === 'object' && error !== null ? error : { detail: String(error) };
     if (value.key !== 'repository.stale') this.error = value;
   }
+  /** A working-tree preview failed; a file committed or reverted meanwhile just leaves the preview. */
+  previewFailed(file: NonNullable<RepositoryBrowser['previewFile']>, error: unknown) {
+    if (typeof error === 'object' && error !== null && (error as RepositoryError).key === 'repository.noLongerChanged') {
+      const current = this.previewFile;
+      if (current && current.hash === file.hash && current.path.bytes.join() === file.path.bytes.join()) this.previewFile = null;
+    } else this.report(error);
+  }
   async applyFilter(input = this.filter) {
     if (JSON.stringify(input) === JSON.stringify(this.filter)) return;
     this.filter = { ...input }; this.filterRevision++;

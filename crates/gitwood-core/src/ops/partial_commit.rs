@@ -52,6 +52,10 @@ pub enum CommitError {
     ConcurrentChange,
     #[error("invalid selection: {0}")]
     InvalidSelection(String),
+    /// The requested path is no longer among the working tree or index changes,
+    /// typically because it was committed or reverted after it was selected.
+    #[error("file is no longer changed")]
+    NoLongerChanged,
     #[error("selected changes conflict with existing staging: {0}")]
     StagedConflict(String),
     #[error("commit may have completed ({head:?}); real index preserved; inspect HEAD before retrying: {reason}")]

@@ -39,7 +39,7 @@
     untrack(() => { if (key !== nextKey) value = null; key = nextKey; });
     const request = !file.hash && selectedArea === 'commit' ? {command:'selection_preview',args:{generation,path:file.path}} : diffRequest(file, generation, selectedArea);
     void invoke<Preview>(request.command, request.args)
-      .then(result => { if (alive) value = result; }).catch(error => { if (alive) { value = null; browser.report(error); } });
+      .then(result => { if (alive) value = result; }).catch(error => { if (alive) { value = null; browser.previewFailed(file, error); } });
     return () => { alive = false; };
   });
   function show(event: KeyboardEvent) {

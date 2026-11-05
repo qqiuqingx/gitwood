@@ -412,9 +412,13 @@ pub async fn containing_branches(
 
 impl From<gitwood_core::ops::CommitError> for Error {
     fn from(error: gitwood_core::ops::CommitError) -> Self {
+        let key = match error {
+            gitwood_core::ops::CommitError::NoLongerChanged => "repository.noLongerChanged",
+            _ => "repository.writeError",
+        };
         Self {
             generation: None,
-            key: "repository.writeError",
+            key,
             path: None,
             detail: error.to_string(),
         }

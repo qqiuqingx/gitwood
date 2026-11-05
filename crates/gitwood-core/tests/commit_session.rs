@@ -69,6 +69,22 @@ async fn staged_a_only_b_through_session_selection_and_patch() {
     assert!(repo.read(R::Diff, &["--cached", "--name-only"]).await == b"A\n");
 }
 #[tokio::test]
+async fn preview_after_committing_the_previewed_file_reports_no_longer_changed() {
+    let repo = Repo::new().await;
+    repo.initial().await;
+    repo.put("B", "selected B\n");
+    let l = lease(&repo).await;
+    let state = l.status().await.unwrap();
+    l.selection_preview(&path("B")).await.unwrap();
+    l.commit_selection(&only("B"), "commit B", false, &state.fingerprint)
+        .await
+        .unwrap();
+    assert!(matches!(
+        l.selection_preview(&path("B")).await,
+        Err(gitwood_core::ops::CommitError::NoLongerChanged)
+    ));
+}
+#[tokio::test]
 async fn same_file_staged_unstaged_partial_and_rollback_lines() {
     let repo = Repo::new().await;
     let base = (0..30).map(|i| format!("line {i}\n")).collect::<String>();
