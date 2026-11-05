@@ -15,6 +15,8 @@ export const macKeymap: readonly Binding[] = [
   { action: 'Vcs.ToggleAmendCommitMode', shortcut: 'control alt M', source: mac },
   { action: 'Vcs.RollbackChangedLines', shortcut: 'meta alt Z', source: 'platform/platform-impl/src/com/intellij/openapi/keymap/impl/MacOSDefaultKeymap.kt (mapModifiers)' },
   { action: 'ChangesView.Revert', shortcut: 'meta alt Z', source: 'platform/platform-impl/src/com/intellij/openapi/keymap/impl/MacOSDefaultKeymap.kt (mapModifiers)' },
+  { action: 'Diff.ShowDiff', shortcut: 'meta D', source: `${parent} (mapModifiers)` },
+  { action: 'ChangesView.AddUnversioned', shortcut: 'meta alt A', source: `${parent} (mapModifiers)` },
   { action: 'List-selectFirstRow', shortcut: 'alt up', source: mac },
   { action: 'List-selectLastRow', shortcut: 'alt down', source: mac },
   { action: 'List-selectFirstRowExtendSelection', shortcut: 'alt shift up', source: mac },
@@ -36,6 +38,8 @@ export const windowsKeymap: readonly Binding[] = [...diffBindings,
   { action: 'Vcs.ToggleAmendCommitMode', shortcut: 'alt M', source: parent },
   { action: 'Vcs.RollbackChangedLines', shortcut: 'control alt Z', source: parent },
   { action: 'ChangesView.Revert', shortcut: 'control alt Z', source: parent },
+  { action: 'Diff.ShowDiff', shortcut: 'control D', source: parent },
+  { action: 'ChangesView.AddUnversioned', shortcut: 'control alt A', source: parent },
 ];
 export function keymapFor(platform: Platform): readonly Binding[] {
   return platform === 'mac' ? macKeymap : windowsKeymap;

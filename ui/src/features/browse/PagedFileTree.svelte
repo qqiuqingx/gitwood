@@ -12,9 +12,9 @@
   export interface FileRow extends TreeRow { path: RepoPath | null; status: string | null; note: string | null; staged: boolean; unstaged: boolean; conflicted: boolean; count: number }
   interface Page { total: number; files: number; start: number; rows: FileRow[]; positions: (number | null)[]; inclusion?: { states: Inclusion[]; count: number } }
   let { hash = '', generation, onerror, changes = false, revision = 0, flat = false, root = '',
-    onselect, selection, ontoggle, oncount, onselectedids, onopen,
+    onselect, selection, ontoggle, oncount, onselectedids, onopen, oncontextmenu,
     expanded = $bindable(new Set(['files', 'conflicts', 'changes', 'unversioned']) as ReadonlySet<string>),
-  }: { selection?: Selection; ontoggle?: (id: string, state: Inclusion) => void; oncount?: (count: number) => void; onselectedids?: (ids: string[]) => void; onopen?: () => void; onselect?: (row: FileRow) => void; hash?: string; generation: number; onerror: (error: unknown) => void; changes?: boolean; revision?: number; flat?: boolean; root?: string; expanded?: ReadonlySet<string> } = $props();
+  }: { selection?: Selection; ontoggle?: (id: string, state: Inclusion) => void; oncount?: (count: number) => void; onselectedids?: (ids: string[]) => void; onopen?: () => void; onselect?: (row: FileRow) => void; oncontextmenu?: (event: MouseEvent, row: FileRow) => void; hash?: string; generation: number; onerror: (error: unknown) => void; changes?: boolean; revision?: number; flat?: boolean; root?: string; expanded?: ReadonlySet<string> } = $props();
   const target = $derived(changes ? (revision ? 'changes' : '') : hash);
   let selected = $state<ReadonlySet<string>>(new Set());
   let rows = $state.raw(new Map<number, FileRow>());
@@ -90,7 +90,7 @@
   <div class="tree"><Tree bind:scrollTop bind:activeIndex onviewportchange={viewport => { if (viewport.rowHeight > 0) rowHeight = viewport.rowHeight; }} searchRows={search} onquerychange={query => { if (!query) searches.invalidate(); }} label={changes ? t('changes') : t('files')} visibleRows={{ count: total, getRow: rowAt }} {expanded} onexpandedchange={ids => { expanded = ids; }}
     onactivate={node => { if((node as FileRow).path) { onselect?.(node as FileRow); onopen?.(); } }}
     onspace={ontoggle ? ids=>void toggleSelected(ids) : undefined}
-    bind:selectedIds={selected} onselectionchange={(_, row) => {
+    bind:selectedIds={selected} oncontextmenu={(event, row) => oncontextmenu?.(event, row as FileRow)} onselectionchange={(_, row) => {
       onselectedids?.([...selected]);
       if (row && (row as FileRow).path) onselect?.(row as FileRow);
       if (row?.id.startsWith('loading:')) {

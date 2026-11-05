@@ -6,19 +6,20 @@ import { RepositoryBrowser } from '../src/features/browse/browser.svelte';
 import FileTreeRow from '../src/features/browse/FileTreeRow.svelte';
 import type { FileRow } from '../src/features/browse/PagedFileTree.svelte';
 import { fileCount, filePathParts, fileRowLabel, fileTypeIcon } from '../src/features/browse/fileTree';
+import { browseText } from '../src/i18n/browse';
+import { commitText } from '../src/i18n/commit';
 it('renders checked, mixed and unchecked inclusion without making mixed look fully checked',()=>{
  for(const [state,aria,checked] of [['all','true',true],['some','mixed',false],['none','false',false]] as const){
   const {body}=render(CheckBox,{props:{state,label:'<path>',onchange:()=>{}}});
   expect(body).toContain(`aria-checked="${aria}"`);expect(/\schecked(?:=|\s|>)/.test(body)).toBe(checked);
  }
 });
-it('orders Changes actions like IDEA, keeps Shelf disabled and exposes the preview and View Options states', () => {
+it('orders Changes actions and exposes the preview and View Options states without a Shelf placeholder', () => {
  Object.defineProperty(globalThis.navigator,'language',{configurable:true,value:'en-US'});
  const body=render(CommitPanel,{props:{browser:new RepositoryBrowser(),refresh:()=>{}}}).body;
  const toolbar=body.slice(body.indexOf('role="toolbar"'),body.indexOf('class="files'));
  const labels=[...toolbar.matchAll(/<button[^>]*aria-label="([^"]+)"/g)].map(match=>match[1]);
- expect(labels).toEqual(['Refresh','Rollback…','Shelve Silently','Show Diff Preview','Expand All','Collapse All','View Options']);
- expect(toolbar.match(/<button[^>]*aria-label="Shelve Silently"[^>]*>/)?.[0]).toContain('disabled');
+ expect(labels).toEqual([browseText('refresh','en-US'),commitText('rollback','en-US'),browseText('showPreview','en-US'),browseText('expandAll','en-US'),browseText('collapseAll','en-US'),browseText('viewOptions','en-US')]);
  expect(toolbar.match(/<button[^>]*aria-label="Show Diff Preview"[^>]*>/)?.[0]).toContain('aria-pressed="true"');
  expect(toolbar.match(/<button[^>]*aria-label="View Options"[^>]*>/)?.[0]).toContain('aria-haspopup="dialog"');
  expect(toolbar).not.toContain('Group by Directory');

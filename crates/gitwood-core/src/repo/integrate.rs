@@ -35,9 +35,10 @@ impl Lease {
         &self,
         left: &str,
         working: bool,
+        right: Option<&str>,
     ) -> Result<super::comparison::Summary, GitError> {
         let comparison =
-            super::comparison::open(&self.runner, &self.options, left, working).await?;
+            super::comparison::open(&self.runner, &self.options, left, working, right).await?;
         let summary = comparison.summary();
         self.ensure_current()?;
         self.data.lock().await.comparison = Some(Arc::new(comparison));

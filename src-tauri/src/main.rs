@@ -1,6 +1,8 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 mod integrate;
+mod stash_changes;
 use integrate::*;
+use stash_changes::*;
 mod conflicts;
 mod credential;
 mod native_menu;
@@ -88,6 +90,25 @@ fn save_layout(
     if let Some(error) = store.save_error() {
         return Err(error);
     }
+    Ok(())
+}
+
+#[tauri::command]
+fn save_history_preferences(
+    app: AppHandle,
+    sessions: WindowSession,
+    store: State<'_, SettingsStore>,
+    add_suffix_to_published: bool,
+    empty_cherry_pick: gitwood_core::ops::history::EmptyCherryPick,
+) -> Result<(), String> {
+    store.update(|settings| {
+        settings.cherry_pick_add_suffix_to_published_commits = add_suffix_to_published;
+        settings.empty_cherry_pick = empty_cherry_pick;
+    });
+    if let Some(error) = store.save_error() {
+        return Err(error);
+    }
+    let _ = sessions.emit(&app, "preferences-changed", store.snapshot());
     Ok(())
 }
 
@@ -268,6 +289,7 @@ fn main() {
             get_theme,
             get_settings,
             save_layout,
+            save_history_preferences,
             set_tool_window,
             finish_exit,
             initial_repository,
@@ -282,6 +304,11 @@ fn main() {
             history_rows,
             history_position,
             history_hashes,
+            history_children,
+            history_revert_has_merge,
+            history_tree_open,
+            history_tree_files,
+            history_tree_diff,
             commit_details,
             commit_files,
             commit_file_tree,
@@ -296,6 +323,7 @@ fn main() {
             commit_message_history,
             rollback,
             undo_commit,
+            history_write,
             operation_state,
             sequence,
             conflict_content,
@@ -321,6 +349,12 @@ fn main() {
             push,
             push_preview,
             commit_and_push,
+            stash_page,
+            stash_diff,
+            stash_write,
+            stash_create,
+            changes_add,
+            changes_delete,
             credential::answer_credential,
         ])
         .on_menu_event(|app, event| {

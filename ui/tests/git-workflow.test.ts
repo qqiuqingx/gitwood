@@ -48,7 +48,7 @@ describe('Git workflow model', () => {
     expect(trackCounts('gone')).toEqual({ ahead: 0, behind: 0 });
   });
   it('uses upstream remote/branch and leaves force lease and tags off', () => {
-    expect(defaultPushOptions(refs)).toEqual({ remote: 'origin', branch: 'main', forceWithLease: false, tags: false });
+    expect(defaultPushOptions(refs)).toEqual({ remote: 'origin', branch: 'main', forceWithLease: false, tags: false, upTo: null });
     expect(isNewPushTarget(refs, { remote: 'origin', branch: 'topic', forceWithLease: false, tags: false })).toBe(true);
     expect(isNewPushTarget(refs, { remote: 'origin', branch: 'main', forceWithLease: false, tags: false })).toBe(false);
   });

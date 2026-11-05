@@ -32,6 +32,7 @@
   // Notices and their actions belong to the repository they were raised for.
   $effect(() => { void browser.project; untrack(() => notifications.clear()); });
   let workflow = $state<GitWorkflow>();
+  let commitPanel = $state<CommitPanel>();
   let browseReady = $state(false);
   // Waiting prompts of this window, oldest first. Rust closes each one when it is answered
   // or its operation ends, so a dialog never outlives the prompt it belongs to.
@@ -58,8 +59,11 @@
   import { defaultLayout, layoutRequest, type Layout } from './layout/state';
   import { applyTheme, effectiveTheme, type Theme, type ThemeChoice, type ThemeError } from './theme';
   import { appearance } from './theme/appearance.svelte';
+  import HistoryPreferencesDialog from './features/git/HistoryPreferencesDialog.svelte';
+  import { historyMenuText } from './i18n/history-menu';
 
-  interface Settings { theme: ThemeChoice; layout: Layout }
+  type EmptyCherryPick = 'skip' | 'createEmpty';
+  interface Settings { theme: ThemeChoice; layout: Layout; cherryPickAddSuffixToPublishedCommits: boolean; emptyCherryPick: EmptyCherryPick }
   const locale = detectLocale(navigator.language);
   const t = (key: Parameters<typeof translate>[1]) => translate(locale, key);
   function togglePanel(panel: 'commit' | 'log') {
@@ -71,6 +75,9 @@
   let settingsError = $state('');
   let closing = $state(false);
   let themeErrors = $state<ThemeError[]>([]);
+  let historyPreferencesOpen = $state(false);
+  let cherryPickAddSuffixToPublished = $state(true);
+  let emptyCherryPick = $state<EmptyCherryPick>('skip');
   let lastLayout = '';
   let pendingSave = Promise.resolve();
 
@@ -115,6 +122,8 @@
         layout.commitVisible = payload.layout.commitVisible;
         layout.logVisible = payload.layout.logVisible;
         choice = payload.theme;
+        cherryPickAddSuffixToPublished = payload.cherryPickAddSuffixToPublishedCommits;
+        emptyCherryPick = payload.emptyCherryPick;
         void refreshTheme();
       });
       if (disposed) { unlisten(); return; }
@@ -135,6 +144,8 @@
       if (disposed) return;
       layout = response.settings.layout;
       choice = response.settings.theme;
+      cherryPickAddSuffixToPublished = response.settings.cherryPickAddSuffixToPublishedCommits;
+      emptyCherryPick = response.settings.emptyCherryPick;
       settingsError = response.error ?? '';
       lastLayout = JSON.stringify(layoutRequest(layout));
       ready = true;
@@ -159,6 +170,7 @@
         else if (payload === 'update-project') workflow?.update();
         else if (payload === 'commit-project') document.querySelector<HTMLElement>('.commit-panel textarea')?.focus();
         else if (payload === 'push-project') workflow?.push();
+        else if (payload.startsWith('ChangesView.') || payload === 'Diff.ShowDiff') commitPanel?.runAction(payload);
         else workflow?.runAction(payload);
       });
       if (disposed) { menu(); return; } unlisteners.push(menu);
@@ -186,7 +198,7 @@
 <main inert={closing}>
   <header><ProjectWidget {browser} busy={projects.busy} open={() => { void chooseRepository(); }} select={path => { void projects.request(path); }} />
     <GitWorkflow bind:this={workflow} {browser} oncommitpush={() => { browser.commit.result = null; }} />
-    <span class="grow"></span><button class="project" aria-label={b('refresh')} title={b('refresh')} disabled={!browser.project} onclick={() => { void browser.refresh({ status: true, refs: true, history: true }); }}>⟳</button>{#if version}<span>{version}</span>{/if}
+    <span class="grow"></span><button class="project" aria-label={b('refresh')} title={b('refresh')} disabled={!browser.project} onclick={() => { void browser.refresh({ status: true, refs: true, history: true }); }}>⟳</button><button class="project" aria-label={historyMenuText('preferences')} title={historyMenuText('preferences')} onclick={() => historyPreferencesOpen = true}>⚙</button>{#if version}<span>{version}</span>{/if}
   </header>
   {#if settingsError}<p role="alert">{t('settingsError')}: {settingsError}</p>{/if}
   {#if themeErrors.length}<p role="alert">{t('themeError')}: {themeErrors.map(error => `${error.path}: ${error.message}`).join('; ')}</p>{/if}
@@ -196,7 +208,7 @@
       <div class="panes"><Splitter axis="y" label={t('workspaceLog')} minFirst={240} minSecond={240} bind:ratio={layout.ratios.workspaceLog} secondVisible={layout.logVisible}>
         {#snippet first()}
           <Splitter label={t('commitDiff')} minFirst={220} minSecond={420} bind:ratio={layout.ratios.commitDiff} firstVisible={layout.commitVisible}>
-            {#snippet first()}<CommitPanel {browser} bind:flat={layout.commitFlat} bind:preview={layout.commitPreview} refresh={() => { void browser.refresh({ status: true, refs: false, history: false }); }} commitPush={() => workflow?.commitAndPush()} />{/snippet}
+            {#snippet first()}<CommitPanel bind:this={commitPanel} {browser} bind:flat={layout.commitFlat} bind:preview={layout.commitPreview} refresh={() => { void browser.refresh({ status: true, refs: false, history: false }); }} commitPush={() => workflow?.commitAndPush()} />{/snippet}
             {#snippet second()}<Preview {browser} bind:ratio={layout.ratios.diffVersions} />{/snippet}
           </Splitter>
         {/snippet}
@@ -230,6 +242,7 @@
 <CredentialDialog request={credentials[0] ?? null} answer={value => { void answerCredential(value); }} />
 {#if projects.pending}<OpenProjectDialog path={projects.pending} choose={target => { void projects.choose(target); }} cancel={() => projects.cancel()} />{/if}
 </main>
+{#if historyPreferencesOpen}<HistoryPreferencesDialog suffix={cherryPickAddSuffixToPublished} empty={emptyCherryPick} onclose={() => { historyPreferencesOpen = false; }} />{/if}
 <style>
   main { display: flex; flex-direction: column; height: 100%; }
   header, footer { display: flex; align-items: center; gap: var(--space-inline); flex: none; padding: var(--space-header-y) var(--space-panel-x); background: var(--background-header); color: var(--text-header); border-bottom: var(--border-width) solid var(--separator); }

@@ -168,6 +168,7 @@ async fn enabled_askpass_leaves_local_transports_working_without_prompts() {
         branch: Some("main".into()),
         force_with_lease: false,
         tags: false,
+        up_to: None,
     };
     let fingerprint = snapshot(&a.runner, &a.options).await.unwrap().fingerprint;
     let outcome = remote::push(&a.runner, &options, &push, &fingerprint)
@@ -243,6 +244,7 @@ async fn only_the_push_receives_the_helper_and_as_a_bare_path() {
         branch: Some("main".into()),
         force_with_lease: false,
         tags: false,
+        up_to: None,
     };
     let fingerprint = snapshot(&a.runner, &a.options).await.unwrap().fingerprint;
     let result = lease

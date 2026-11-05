@@ -59,6 +59,9 @@ pub struct PushOptions {
     pub branch: Option<String>,
     pub force_with_lease: bool,
     pub tags: bool,
+    /// Push this selected commit instead of HEAD. It must be an ancestor of current HEAD.
+    #[serde(default)]
+    pub up_to: Option<String>,
 }
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
@@ -71,6 +74,7 @@ pub enum UpdateStrategy {
 pub struct PushPreview {
     pub remote: String,
     pub branch: String,
+    pub source: String,
     pub commits: Vec<String>,
     /// Subject line for each entry of `commits` (same order and length).
     pub subjects: Vec<String>,
@@ -257,7 +261,30 @@ pub async fn preview(
     }
     cmd(r, o, "check-ref-format", &["--branch", &branch]).await?;
     let target = format!("refs/remotes/{remote}/{branch}");
-    let mut args = vec!["--format=%H%x00%s".to_owned(), "HEAD".into()];
+    let source = if let Some(hash) = &p.up_to {
+        crate::history::details::validate_hash(hash)?;
+        let resolved = r
+            .run(
+                ReadCommand::new(ReadOperation::RevParse).args([
+                    "--verify",
+                    "--end-of-options",
+                    &format!("{hash}^{{commit}}"),
+                ]),
+                o,
+            )
+            .await?;
+        let source = String::from_utf8_lossy(&resolved.stdout).trim().to_owned();
+        r.run(
+            ReadCommand::new(ReadOperation::MergeBase).args(["--is-ancestor", &source, "HEAD"]),
+            o,
+        )
+        .await
+        .map_err(|_| repo::invalid("remote.pushCommitNotAncestor"))?;
+        source
+    } else {
+        "HEAD".into()
+    };
+    let mut args = vec!["--format=%H%x00%s".to_owned(), source.clone()];
     if refs.remotes.values().flatten().any(|b| b.name == target) {
         args.push(format!("^{target}"));
     } else {
@@ -277,6 +304,7 @@ pub async fn preview(
     Ok(PushPreview {
         remote,
         branch,
+        source,
         total: commits.len(),
         start: 0,
         commits,
@@ -318,7 +346,7 @@ pub async fn push(
     check(r, o, expected).await?;
     let target = preview(r, o, p).await?;
     let options = transport_options(r, o).await?;
-    let refspec = format!("HEAD:refs/heads/{}", target.branch);
+    let refspec = format!("{}:refs/heads/{}", target.source, target.branch);
     let mut args = vec!["--porcelain", "--progress", "--set-upstream"];
     if p.force_with_lease {
         args.push("--force-with-lease");

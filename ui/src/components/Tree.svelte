@@ -6,7 +6,7 @@
   import Highlight from './Highlight.svelte';
   import { flattenTree, type TreeSource, type TreeRow } from './tree';
   let { source, visibleRows, onrangechange, onviewportchange, scrollTop = $bindable(0), activeIndex = $bindable(-1), onquerychange, searchRows, search = true, label, expanded, onexpandedchange, selectedIds = $bindable(new Set<string>() as ReadonlySet<string>),
-    content, onselectionchange, onactivate, onspace, searchLabel = controlText('search'), noMatchLabel = controlText('noMatch'),
+    content, onselectionchange, onactivate, onspace, oncontextmenu, searchLabel = controlText('search'), noMatchLabel = controlText('noMatch'),
   }: {
     scrollTop?: number;
     activeIndex?: number;
@@ -22,6 +22,7 @@
     selectedIds?: ReadonlySet<string>;
     onselectionchange?: (ids: ReadonlySet<string>, row: TreeRow | undefined) => void;
     onspace?: (ids: readonly string[]) => void;
+    oncontextmenu?: (event: MouseEvent, row: TreeRow, index: number) => void;
     onactivate?: (row: TreeRow) => void; searchLabel?: string; noMatchLabel?: string;
   } = $props();
   // Expansion belongs to the caller: async children and future refreshes share one source of truth.
@@ -57,7 +58,8 @@
 <List bind:this={list} role="tree" {rowCount} getRow={rowAt} bind:scrollTop {onrangechange} {onviewportchange} {onquerychange} {label}
   {search} {searchRows} multi bind:selectedIds activeIndex={currentActive} {searchLabel} {noMatchLabel} onnavigate={keyboard}
   onselectionchange={(ids, index) => { activeIndex = index; activeId = rowAt(index)?.id ?? null; onselectionchange?.(ids, rowAt(index)); }}
-  onactivate={(_, index, reason) => { const row = rowAt(index); if (reason === 'doubleclick' && row.hasChildren) expand(row.id, !row.expanded); else onactivate?.(row); }}>
+  onactivate={(_, index, reason) => { const row = rowAt(index); if (reason === 'doubleclick' && row.hasChildren) expand(row.id, !row.expanded); else onactivate?.(row); }}
+  oncontextmenu={(event, _, index) => oncontextmenu?.(event, rowAt(index), index)}>
   {#snippet row(_, index, query)}
     {@const node = rowAt(index)}
     <span class="node" style:padding-inline-start={`calc(${(node.level ?? 1) - 1} * var(--tree-indent, var(--space-panel-x)))`}>

@@ -103,6 +103,8 @@ pub struct Settings {
     pub layout: Layout,
     pub window: Option<Rect>,
     pub recent_repositories: Vec<RecentRepository>,
+    pub cherry_pick_add_suffix_to_published_commits: bool,
+    pub empty_cherry_pick: gitwood_core::ops::history::EmptyCherryPick,
 }
 impl Default for Settings {
     fn default() -> Self {
@@ -112,6 +114,8 @@ impl Default for Settings {
             layout: Layout::default(),
             window: None,
             recent_repositories: Vec::new(),
+            cherry_pick_add_suffix_to_published_commits: true,
+            empty_cherry_pick: gitwood_core::ops::history::EmptyCherryPick::Skip,
         }
     }
 }
@@ -306,6 +310,11 @@ mod tests {
     use super::*;
     #[test]
     fn settings_roundtrip_preserves_hidden_ratios_and_window() {
+        assert!(Settings::default().cherry_pick_add_suffix_to_published_commits);
+        assert_eq!(
+            Settings::default().empty_cherry_pick,
+            gitwood_core::ops::history::EmptyCherryPick::Skip
+        );
         let original = Settings {
             theme: ThemeChoice::Walnut,
             layout: Layout {
@@ -326,6 +335,8 @@ mod tests {
                 width: 1000,
                 height: 700,
             }),
+            cherry_pick_add_suffix_to_published_commits: false,
+            empty_cherry_pick: gitwood_core::ops::history::EmptyCherryPick::CreateEmpty,
             ..Settings::default()
         };
         assert_eq!(

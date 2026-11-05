@@ -1,5 +1,6 @@
 import { expect, it, vi } from 'vitest';
-import { historyMenuItems } from '../src/features/browse/history-menu';
+import { forSelection, historyMenuItems } from '../src/features/browse/history-menu';
+import { historyMenuText } from '../src/i18n/history-menu';
 import type { BranchPopupHandlers } from '../src/features/git/model';
 import type { Commit, References } from '../src/features/browse/types';
 const commit: Commit = { hash: 'a'.repeat(40), parents: ['b'.repeat(40)], author: '', email: '', author_time: 0, commit_time: 0, subject: '', message: '', refs: '' };
@@ -12,12 +13,50 @@ const actions = { copy: vi.fn(), parent: vi.fn() };
 const build = (parent = true, references: References | null = refs, branches: BranchPopupHandlers | undefined = handlers, selected = commit) => historyMenuItems(selected, references, branches, parent, actions, key => key);
 it('uses the IDEA merged menu order and leaves planned operations disabled', () => {
   const items = build();
-  expect(items.map(item => item.id)).toEqual(['copy', 'patch', 'separator:checkout', 'checkout', 'browse', 'separator:compare', 'compare', 'localDiff', 'separator:reset', 'reset', 'revert', 'undo', 'separator:edit', 'edit', 'fixup', 'squashInto', 'drop', 'squash', 'rebase', 'push', 'separator:branch', 'branch', 'newBranch', 'tag', 'separator:navigate', 'child', 'parent']);
-  const live = new Set(['copy', 'checkout', 'branch', 'newBranch', 'parent']);
+  expect(items.map(item => item.id)).toEqual(['copy', 'patch', 'separator:checkout', 'checkout', 'browse', 'separator:compare', 'compare', 'localDiff', 'separator:reset', 'reset', 'revert', 'cherryPick', 'undo', 'separator:edit', 'edit', 'fixup', 'squashInto', 'drop', 'squash', 'rebase', 'push', 'separator:branch', 'branch', 'newBranch', 'tag', 'push-tag:refs/tags/tag', 'delete-tag:refs/tags/tag', 'delete-remote-tag:refs/tags/tag', 'separator:navigate', 'child', 'parent']);
+  const live = new Set(['copy', 'checkout', 'browse', 'localDiff', 'child', 'branch', 'newBranch', 'parent']);
   for (const item of items.filter(item => !item.kind)) expect(!item.disabled, item.id).toBe(live.has(item.id));
   expect(items[0].shortcut).toBeUndefined(); items[0].run!(); expect(actions.copy).toHaveBeenCalled();
   items.find(item => item.id === 'newBranch')!.run!(); expect(handlers.newFrom).toHaveBeenCalledWith(commit.hash);
   items.find(item => item.id === 'parent')!.run!(); expect(actions.parent).toHaveBeenCalled();
+});
+
+it('enables the supported history actions and enforces one or two commit selection counts', () => {
+  const run = vi.fn();
+  const info = { branches: [], total: 0, protected: false, operation: null };
+  const items = historyMenuItems(commit, refs, handlers, true, { ...actions, run }, historyMenuText, { info, run: actions.copy, busy: false, writable: true, applyAllowed: true }, 2);
+  for (const id of ['cherryPick', 'revert', 'push', 'browse', 'localDiff', 'reset', 'tag', 'child']) {
+    expect(items.find(item => item.id === id)?.disabled).toBe(false);
+  }
+  expect(items.find(item => item.id === 'compare')?.disabled).toBe(false);
+  items.find(item => item.id === 'compare')!.run!();
+  expect(run).toHaveBeenCalledWith('compare', commit.hash);
+  expect(items.find(item => item.id === 'push-tag:refs/tags/tag')?.disabled).toBe(false);
+  const selectedOne = historyMenuItems(commit, refs, handlers, true, { ...actions, run }, historyMenuText, { info, run: actions.copy, busy: false, writable: true, applyAllowed: true }, 1);
+  expect(selectedOne.find(item => item.id === 'compare')?.disabled).toBe(true);
+  const filteredMulti = forSelection(items, 2);
+  expect(filteredMulti.find(item => item.id === 'reset')?.disabled).toBe(true);
+});
+
+it('disables Revert for merge commits and uses localized explanatory copy', () => {
+  const merge = { ...commit, parents: ['a'.repeat(40), 'b'.repeat(40)] };
+  const item = historyMenuItems(merge, refs, handlers, true, actions, historyMenuText, { info: { branches: [], total: 0, protected: false, operation: null }, run: actions.copy, busy: false, writable: true, applyAllowed: true }).find(value => value.id === 'revert')!;
+  expect(item.disabled).toBe(true);
+  expect(item.hint).toBe(historyMenuText('revertMerge'));
+  const selectedMerge = historyMenuItems(commit, refs, handlers, true, actions, historyMenuText, { info: { branches: [], total: 0, protected: false, operation: null }, run: actions.copy, busy: false, writable: true, applyAllowed: true }, 2, true).find(value => value.id === 'revert')!;
+  expect(selectedMerge.disabled).toBe(true);
+  expect(selectedMerge.hint).toBe(historyMenuText('revertMerge'));
+});
+
+it('disables cherry-pick and revert when the index has existing staged changes', () => {
+  const items = historyMenuItems(commit, refs, handlers, true, actions, historyMenuText, {
+    info: { branches: [], total: 0, protected: false, operation: null }, run: actions.copy, busy: false, writable: true, applyAllowed: false,
+  });
+  for (const id of ['cherryPick', 'revert']) {
+    const item = items.find(value => value.id === id)!;
+    expect(item.disabled).toBe(true);
+    expect(item.hint).toBe(historyMenuText('historyStagedChanges'));
+  }
 });
 it('uses only branches at the selected commit and reuses branch operation handlers', () => {
   const items = build(); const branches = items.find(item => item.id === 'branch')!.children!;

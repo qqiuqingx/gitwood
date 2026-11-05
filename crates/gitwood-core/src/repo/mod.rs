@@ -1,10 +1,12 @@
 //! Repository discovery, byte-preserving status, references, sessions and event refresh.
 pub mod file_tree;
+pub mod history_browser;
 pub mod operation;
 pub mod refs;
 pub mod session;
 pub mod status;
 pub mod watch;
+pub mod workspace;
 use crate::git::{GitError, GitRunner, ReadCommand, ReadOperation, RunOptions};
 use serde::{Deserialize, Serialize};
 use std::{ffi::OsString, path::PathBuf};

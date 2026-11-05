@@ -131,6 +131,76 @@ async fn restore(r: &GitRunner, o: &RunOptions, stash: &str) -> Result<BranchOut
     Ok(BranchOutcome::Completed)
 }
 
+/// Shared Normal / Smart / Force checkout path for branches and detached revisions.
+pub(super) async fn checkout_with_mode(
+    r: &GitRunner,
+    o: &RunOptions,
+    mut args: Vec<String>,
+    mode: CheckoutMode,
+    branch_ref: bool,
+) -> Result<BranchOutcome, GitError> {
+    check_lock(r, o).await?;
+    let mut stash = None;
+    if matches!(mode, CheckoutMode::Force) {
+        args.insert(0, "--force".into());
+    }
+    if matches!(mode, CheckoutMode::Smart) {
+        let before = stash_id(r, o).await?;
+        let saved = command(r, o, "stash", &["push", "-m", "Gitwood Smart Checkout"]).await;
+        let mut recovery = o.clone();
+        recovery.cancellation = crate::git::CancellationToken::new();
+        stash = stash_id(r, &recovery)
+            .await?
+            .filter(|id| Some(id) != before.as_ref());
+        if let Err(error) = saved {
+            if let Some(stash) = stash {
+                return Ok(BranchOutcome::StashRecovery {
+                    stash,
+                    files: vec![],
+                    detail: error.to_string(),
+                });
+            }
+            return Err(error);
+        }
+    }
+    if branch_ref {
+        args.push("--".into());
+    }
+    let result = r.run(WriteCommand::new("checkout").args(args), o).await;
+    if let Some(stash) = stash {
+        let mut recovery = o.clone();
+        recovery.cancellation = crate::git::CancellationToken::new();
+        let restored = restore(r, &recovery, &stash).await?;
+        if !matches!(restored, BranchOutcome::Completed) {
+            return Ok(restored);
+        }
+    }
+    check_lock(r, o).await?;
+    match result {
+        Ok(_) => Ok(BranchOutcome::Completed),
+        Err(GitError::Exit { stderr, .. })
+            if stderr.contains("would be overwritten by checkout") =>
+        {
+            let state = status::read(r, o).await?;
+            let files = state
+                .staged
+                .into_iter()
+                .chain(state.unstaged)
+                .chain(state.untracked)
+                .filter(|entry| {
+                    stderr
+                        .lines()
+                        .filter_map(|line| line.strip_prefix('\t'))
+                        .any(|line| unquote(line) == entry.path.bytes)
+                })
+                .map(|entry| entry.path)
+                .collect();
+            Ok(BranchOutcome::LocalChanges { files })
+        }
+        Err(error) => Err(error),
+    }
+}
+
 pub async fn branch(
     r: &GitRunner,
     o: &RunOptions,
@@ -242,32 +312,8 @@ pub async fn branch(
     if super::snapshot(r, o).await?.fingerprint != expected {
         return Err(crate::repo::invalid("branch.concurrentChange"));
     }
-    let mut stash = None;
     if name == "checkout" {
-        if matches!(mode, CheckoutMode::Force) {
-            args.insert(0, "--force".into());
-        }
-        if matches!(mode, CheckoutMode::Smart) {
-            let before = stash_id(r, o).await?;
-            let saved = command(r, o, "stash", &["push", "-m", "Gitwood Smart Checkout"]).await;
-            let mut recovery = o.clone();
-            recovery.cancellation = crate::git::CancellationToken::new();
-            stash = stash_id(r, &recovery)
-                .await?
-                .filter(|id| Some(id) != before.as_ref());
-            if let Err(error) = saved {
-                if let Some(stash) = stash {
-                    return Ok(BranchOutcome::StashRecovery {
-                        stash,
-                        files: vec![],
-                        detail: error.to_string(),
-                    });
-                }
-                return Err(error);
-            }
-        }
-        // Prevent a branch name being interpreted as a file checkout.
-        args.push("--".into());
+        return checkout_with_mode(r, o, args, mode, true).await;
     }
     let result = command(
         r,
@@ -276,37 +322,9 @@ pub async fn branch(
         &args.iter().map(String::as_str).collect::<Vec<_>>(),
     )
     .await;
-    if let Some(stash) = stash {
-        let mut recovery = o.clone();
-        recovery.cancellation = crate::git::CancellationToken::new();
-        let restored = restore(r, &recovery, &stash).await?;
-        if !matches!(restored, BranchOutcome::Completed) {
-            return Ok(restored);
-        }
-    }
     check_lock(r, o).await?;
     match result {
         Ok(_) => Ok(BranchOutcome::Completed),
-        Err(GitError::Exit { stderr, .. })
-            if stderr.contains("would be overwritten by checkout") =>
-        {
-            // Git C-quotes unusual paths; status supplies byte-preserving identities.
-            let state = status::read(r, o).await?;
-            let files = state
-                .staged
-                .into_iter()
-                .chain(state.unstaged)
-                .chain(state.untracked)
-                .filter(|e| {
-                    stderr
-                        .lines()
-                        .filter_map(|line| line.strip_prefix('\t'))
-                        .any(|line| unquote(line) == e.path.bytes)
-                })
-                .map(|e| e.path)
-                .collect();
-            Ok(BranchOutcome::LocalChanges { files })
-        }
         Err(GitError::Exit { stderr, .. }) if stderr.contains("not fully merged") => {
             let BranchOperation::Delete { name, .. } = operation else {
                 unreachable!()

@@ -17,6 +17,9 @@ pub enum ReadOperation {
     CatFile,
     CheckRefFormat,
     RemoteNames,
+    MergeBase,
+    StashShow,
+    StashList,
 }
 
 impl ReadOperation {
@@ -34,6 +37,9 @@ impl ReadOperation {
             Self::CatFile => "cat-file",
             Self::CheckRefFormat => "check-ref-format",
             Self::RemoteNames => "remote",
+            Self::MergeBase => "merge-base",
+            Self::StashShow => "stash",
+            Self::StashList => "stash",
         }
     }
     fn is_diff(self) -> bool {
@@ -147,6 +153,34 @@ pub(super) fn read_config_arguments() -> Vec<OsString> {
 }
 
 fn validate_read(read: &ReadCommand) -> Result<(), GitError> {
+    if matches!(read.operation, ReadOperation::StashList) {
+        let args: Vec<_> = read.args.iter().map(|arg| arg.to_string_lossy()).collect();
+        if args.len() != 2 || args[0] != "list" || args[1] != "--format=%gd%x00%H%x00%gs" {
+            return Err(GitError::InvalidCommand(
+                "invalid read-only stash list".into(),
+            ));
+        }
+        return Ok(());
+    }
+    if matches!(read.operation, ReadOperation::StashShow) {
+        let args: Vec<_> = read.args.iter().map(|arg| arg.to_string_lossy()).collect();
+        if args.len() != 9
+            || args[0] != "show"
+            || args[1] != "--patch"
+            || args[2] != "--binary"
+            || args[3] != "--include-untracked"
+            || args[4] != "--no-color"
+            || args[5] != "--no-ext-diff"
+            || args[6] != "--no-textconv"
+            || args[7] != "--ignore-submodules=all"
+            || !args[8].bytes().all(|byte| byte.is_ascii_hexdigit())
+        {
+            return Err(GitError::InvalidCommand(
+                "invalid read-only stash show".into(),
+            ));
+        }
+        return Ok(());
+    }
     if matches!(read.operation, ReadOperation::RemoteNames) && !read.args.is_empty() {
         return Err(GitError::InvalidCommand(
             "remote names read accepts no arguments".into(),

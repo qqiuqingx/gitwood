@@ -13,6 +13,7 @@ fn options() -> PushOptions {
         branch: Some("main".into()),
         force_with_lease: false,
         tags: false,
+        up_to: None,
     }
 }
 async fn fixture() -> (Repo, Repo, tempfile::TempDir) {
@@ -107,6 +108,63 @@ async fn push_fetch_preview_rejection_and_lease() {
             .unwrap(),
         RemoteOutcome::Push { success: true, .. }
     ));
+}
+
+#[tokio::test]
+async fn push_up_to_commit_uses_only_current_branch_ancestor() {
+    let (r, _other, _bare) = fixture().await;
+    let p = options();
+    remote::push(&r.runner, &r.options, &p, &token(&r).await)
+        .await
+        .unwrap();
+    r.put("A", "second\n");
+    r.git("commit", &["-am", "second"]).await;
+    let second = String::from_utf8(r.git("rev-parse", &["HEAD"]).await)
+        .unwrap()
+        .trim()
+        .to_owned();
+    r.put("B", "third\n");
+    r.git("commit", &["-am", "third"]).await;
+    let mut upto = options();
+    upto.up_to = Some(second.clone());
+    assert_eq!(
+        remote::preview(&r.runner, &r.options, &upto)
+            .await
+            .unwrap()
+            .commits
+            .len(),
+        1
+    );
+    assert!(matches!(
+        remote::push(&r.runner, &r.options, &upto, &token(&r).await)
+            .await
+            .unwrap(),
+        RemoteOutcome::Push { success: true, .. }
+    ));
+    assert_eq!(
+        r.git("ls-remote", &["origin", "refs/heads/main"])
+            .await
+            .split(|byte| *byte == b'\t')
+            .next()
+            .unwrap(),
+        second.as_bytes()
+    );
+    r.git("checkout", &["-qb", "side"]).await;
+    r.put("A", "side\n");
+    r.git("commit", &["-am", "side"]).await;
+    let side = String::from_utf8(r.git("rev-parse", &["HEAD"]).await)
+        .unwrap()
+        .trim()
+        .to_owned();
+    r.git("checkout", &["-q", "main"]).await;
+    upto.up_to = Some(side);
+    assert_eq!(
+        remote::preview(&r.runner, &r.options, &upto)
+            .await
+            .unwrap_err()
+            .key,
+        "remote.failed"
+    );
 }
 #[tokio::test]
 async fn update_conflict_abort_and_local_changes() {

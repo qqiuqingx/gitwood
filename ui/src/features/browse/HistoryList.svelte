@@ -16,15 +16,19 @@
   import { browseText as t, prettyDateWords } from '../../i18n/browse';
   import type { RepositoryBrowser } from './browser.svelte';
   let { browser, handlers }: { browser: RepositoryBrowser; handlers?: BranchPopupHandlers } = $props();
-  let context = $state<{ commit: Commit; anchor: Rect; generation: number } | null>(null);
+  let context = $state<{ commit: Commit; anchor: Rect; generation: number; selection: string[] } | null>(null);
   let undoInfo = $state<UndoInfo | null>(null);
   let parentAvailable = $state(false);
+  let selectionHasMerge = $state<boolean | null>(null);
   const contextItems = $derived.by(() => {
     const commit = context?.commit;
-    const count = browser.selection.size;
+    const count = context?.selection.length ?? 0;
     return commit ? forSelection(historyMenuItems(commit, browser.refs, handlers, parentAvailable,
-      { copy: () => { void copyRevision(count > 1 ? orderedSelection().join(' ') : commit.hash); },
-        parent: () => { if (commit.parents[0]) void browser.goToCommit(commit.parents[0]); } }, historyMenuText, { info: undoInfo, busy: browser.commit.busy, run: () => { void browser.undoCommit(commit.hash); } }), count) : [];
+      { copy: () => { void copyRevision(count > 1 ? context!.selection.join(' ') : commit.hash); },
+        parent: () => { if (commit.parents[0]) void browser.goToCommit(commit.parents[0]); },
+        run: (action, hash) => handlers?.historyAction?.(action, hash, count > 1 ? context!.selection : [hash]) }, historyMenuText,
+      { info: undoInfo, busy: browser.commit.busy, writable: !!undoInfo && (!undoInfo.operation || undoInfo.operation.kind === 'bisect') && (handlers?.canHistoryWrite?.() ?? (!!browser.refs?.head.head && browser.refs.head.head !== '(detached)' && !!browser.refs.head.oid && browser.refs.head.oid !== '(initial)' && !browser.status?.operation && !browser.status?.conflicts && !browser.status?.update_stash && !browser.commit.busy)), applyAllowed: handlers?.canHistoryApply?.() ?? (!!browser.status && browser.status.staged === 0),
+        run: () => { void browser.undoCommit(commit.hash); } }, Math.max(count, 1), selectionHasMerge), count) : [];
   });
   /** Log order where rows are loaded (IDEA copies in table order); others keep selection order. */
   function orderedSelection() {
@@ -42,13 +46,18 @@
     const commit = browser.rows.get(index)?.commit;
     if (!commit) return;
     const request = ++contextRequest;
-    const opened = { commit, anchor: { x: event.clientX, y: event.clientY, width: 0, height: 0 }, generation: browser.generation };
-    context = opened; parentAvailable = false; undoInfo = null;
+    const selection = browser.selection.has(commit.hash) && browser.selection.size > 1 ? orderedSelection() : [commit.hash];
+    const opened = { commit, selection, anchor: { x: event.clientX, y: event.clientY, width: 0, height: 0 }, generation: browser.generation };
+    context = opened; parentAvailable = false; selectionHasMerge = null; undoInfo = null;
+    const selectedHashes = selection;
     void Promise.all([
       invoke<{ branches: string[]; total: number; protected: boolean }>('containing_branches', { generation: opened.generation, hash: commit.hash }),
       invoke<UndoInfo['operation']>('operation_state', { generation: opened.generation }),
-    ]).then(([branches, operation]) => {
-      if (context !== null && request === contextRequest && browser.generation === opened.generation) undoInfo = { ...branches, operation };
+      invoke<boolean>('history_revert_has_merge', { generation: opened.generation, hashes: selectedHashes }),
+    ]).then(([branches, operation, hasMerge]) => {
+      if (context !== null && request === contextRequest && browser.generation === opened.generation) {
+        undoInfo = { ...branches, operation }; selectionHasMerge = hasMerge;
+      }
     }).catch(error => { if (context !== null && request === contextRequest && browser.generation === opened.generation) browser.report(error); });
     if (commit.parents[0]) void browser.historyPosition(commit.parents[0]).then(position => {
       if (context?.commit.hash === opened.commit.hash && context.generation === opened.generation) parentAvailable = position !== null;

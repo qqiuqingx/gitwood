@@ -33,6 +33,7 @@ pub struct Lease {
 #[derive(Default)]
 pub(super) struct Data {
     pub(super) comparison: Option<Arc<super::comparison::Comparison>>,
+    pub(super) history_tree: Option<Arc<super::history_browser::HistoryTree>>,
     layout: Option<GraphLayout>,
     /// Per layout row: reachable from the current branch (empty = no highlight).
     current_branch: Vec<bool>,
@@ -50,6 +51,7 @@ pub(super) struct Data {
 pub struct StatusSummary {
     pub branch: status::Branch,
     pub changes: usize,
+    pub staged: usize,
     pub untracked: usize,
     pub conflicts: usize,
     pub conflict_files: Vec<crate::ops::conflict::ConflictFile>,
@@ -245,6 +247,7 @@ impl Lease {
                 behind: status.branch.behind,
             },
             changes,
+            staged: status.staged.len(),
             untracked: status.untracked.len(),
             conflicts: status.conflicts.len(),
             conflict_files,

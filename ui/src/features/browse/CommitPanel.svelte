@@ -8,11 +8,13 @@
   import { detectPlatform } from '../../keymap/shortcuts';
   import { invoke } from '@tauri-apps/api/core';
   import { tick } from 'svelte';
-  import { canCommit, amendMessage, toggleRule } from '../commit/model';
+  import { canCommit, amendMessage, toggleRule, includeCommitFile } from '../commit/model';
   import RollbackDialog from '../commit/RollbackDialog.svelte';
+  import DeleteChangesDialog from '../commit/DeleteChangesDialog.svelte';
   import { commitText as c } from '../../i18n/commit';
   import Popup from '../../components/Popup.svelte';
   import type { FileRow } from './PagedFileTree.svelte';
+  import type { PopupItem, Rect } from '../../components/popup';
   import Toolbar from '../../components/Toolbar.svelte';
   import Tabs from '../../components/Tabs.svelte';
   import PagedFileTree from './PagedFileTree.svelte';
@@ -27,6 +29,7 @@
   }
   function selectFile(row: FileRow) {
     selectedFile = row;
+    contextRow = row;
     if (preview) previewFile(row);
   }
   function togglePreview() {
@@ -34,6 +37,7 @@
     if (preview && selectedFile) previewFile(selectedFile);
   }
   let ids = $state<string[]>([]), rollback = $state(false), history = $state(false);
+  let contextAnchor = $state<Rect | null>(null), contextRow = $state<FileRow | null>(null), deleteRow = $state<FileRow | null>(null);
   let messageBox: HTMLTextAreaElement; let historySelect = $state<HTMLSelectElement>(null!);
   const session = $derived(browser.commit);
   async function amend() {
@@ -65,14 +69,39 @@
     catch(error){browser.report(error);}
   }
   const actions=createActionRegistry();
+  export function runAction(id: string) { return actions.run(id); }
   actions.register('Vcs.ShowMessageHistory',{run:()=>void showHistory(),enabled:()=>!session.busy,allowInInput:true});
   actions.register('Vcs.ToggleAmendCommitMode',{run:()=>void amend(),enabled:()=>!session.busy && !browser.status?.operation && browser.status?.branch.oid !== '(initial)',allowInInput:true});
   actions.register('ChangesView.Revert',{run:()=>{rollback=true;},enabled:()=>!!ids.length && !session.busy});
+  actions.register('Diff.ShowDiff', { run: () => { if (contextRow) { selectFile(contextRow); void openDiff(); } }, enabled: () => !!contextRow?.path && !session.busy });
+  actions.register('ChangesView.CommitFile', { run: () => { if (!contextRow?.path) return; session.selection = includeCommitFile(session.selection, contextRow.id, contextRow.path); void tick().then(() => messageBox?.focus()); }, enabled: () => !!contextRow?.path && !contextRow.conflicted && !session.busy });
+  actions.register('ChangesView.AddUnversioned', { run: () => { if (contextRow?.path && browser.status?.fingerprint) void invoke('changes_add', { generation: browser.generation, paths: [contextRow.path], expected: browser.status.fingerprint }).then(() => browser.refresh({ status:true, refs:false, history:false })).catch(error => browser.report(error)); }, enabled: () => !!contextRow?.path && contextRow.status === '?' && !session.busy });
+  actions.register('ChangesView.Delete', { run: () => { if (contextRow?.path) deleteRow = contextRow; }, enabled: () => !!contextRow?.path && !session.busy });
+  actions.register('ChangesView.Refresh', { run: () => refresh(), enabled: () => !session.busy });
   function keyboard(event: KeyboardEvent) {
     if(event.key==='Escape' && history){event.preventDefault();history=false;messageBox.focus();return;}
     actions.dispatch(event,keymapFor(detectPlatform(navigator.platform)),event.target instanceof HTMLElement && !!event.target.closest('input,textarea,select'));
   }
   async function openDiff() {if(selectedFile?.conflicted) { requestResolution(); return; } if(selectedFile)previewFile(selectedFile);await tick(); document.querySelector<HTMLElement>('.diff-view .cm-content')?.focus();}
+  function contextMenu(event: MouseEvent, row: FileRow) {
+    if (!row.path) return;
+    event.preventDefault(); contextRow = row; selectedFile = row;
+    contextAnchor = { x: event.clientX, y: event.clientY, width: 0, height: 0 };
+  }
+  const contextActions = $derived.by((): PopupItem[] => {
+    const row = contextRow;
+    const canFile = !!row?.path && !row.conflicted;
+    const canAdd = canFile && row?.status === '?';
+    const shortcut = detectPlatform(navigator.platform) === 'mac' ? { rollback: '⌥⌘Z', diff: '⌘D', add: '⌥⌘A' } : { rollback: 'Ctrl+Alt+Z', diff: 'Ctrl+D', add: 'Ctrl+Alt+A' };
+    const commit: PopupItem = { id:'context-commit', label:t('commitFile'), disabled:!canFile || session.busy, run:()=>actions.run('ChangesView.CommitFile') };
+    const revert: PopupItem = { id:'context-rollback', label:c('rollback'), shortcut:shortcut.rollback, disabled:!canFile || session.busy, run:()=>{ ids=[row!.id]; actions.run('ChangesView.Revert'); } };
+    const add: PopupItem = { id:'context-add', label:t('addToVcs'), shortcut:shortcut.add, disabled:!canAdd || session.busy, run:()=>actions.run('ChangesView.AddUnversioned') };
+    return [commit, revert, { id:'context-diff', label:t('showDiffAction'), shortcut:shortcut.diff, disabled:!canFile || session.busy, run:()=>actions.run('Diff.ShowDiff') },
+      { id:'context-delete', label:t('delete'), disabled:!canFile || session.busy, run:()=>actions.run('ChangesView.Delete') }, add,
+      { id:'context-refresh', label:t('refresh'), disabled:session.busy, run:()=>actions.run('ChangesView.Refresh') },
+      { id:'context-separator', label:'', kind:'separator' },
+      { id:'context-git', label:t('gitSubmenu'), children:[commit, revert, add] }];
+  });
 
   const ready = $derived(canCommit(session.message,session.count + (browser.status?.operation?.kind === 'merge' ? 1 : 0),session.amend,session.busy || !!browser.status?.conflicts || ['rebase','applyMailbox'].includes(browser.status?.operation?.kind ?? '')));
   let messageOperation = '';
@@ -87,19 +116,17 @@
   });
   let expanded = $state<ReadonlySet<string>>(new Set(['conflicts', 'changes', 'unversioned']));
 </script>
-<Tabs label={t('commit')} activeId="commit" tabs={[{ id: 'commit', label: t('commit') }, { id: 'shelf', label: t('shelf'), disabled: true }]} onchange={() => {}}>
+<Tabs label={t('commit')} activeId="commit" tabs={[{ id: 'commit', label: t('commit') }]} onchange={() => {}}>
   {#snippet panel()}
     <!-- svelte-ignore a11y_no_noninteractive_element_interactions (Commit scope shortcuts are delegated from its tree and message input.) -->
     <section class="commit-panel" onkeydown={keyboard} aria-label={t('commit')}>
       {#snippet refreshIcon()}⟳{/snippet}{#snippet optionsIcon()}⚙{/snippet}{#snippet rollbackIcon()}↶{/snippet}
       {#snippet expandIcon()}<svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" aria-hidden="true"><path d="m5 5 3-3 3 3M5 11l3 3 3-3" /></svg>{/snippet}
       {#snippet collapseIcon()}<svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" aria-hidden="true"><path d="m5 2 3 3 3-3M5 14l3-3 3 3" /></svg>{/snippet}
-      {#snippet shelfIcon()}<svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" aria-hidden="true"><path d="M8 2v7m-3-3 3 3 3-3M2 10v4h12v-4M2 11h4l1 1h2l1-1h4" /></svg>{/snippet}
       {#snippet previewIcon()}<svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" aria-hidden="true"><path d="M1 8s2.5-5 7-5 7 5 7 5-2.5 5-7 5-7-5-7-5Z" /><circle cx="8" cy="8" r="2" /></svg>{/snippet}
       <Toolbar label={t('changes')} items={[
         { id: 'refresh', label: t('refresh'), icon: refreshIcon, run: refresh },
         { id: 'rollback', label: c('rollback'), icon: rollbackIcon, disabled: !ids.length || session.busy, run: () => { rollback=true; } },
-        { id: 'shelve', label: t('shelveSilently'), icon: shelfIcon, disabled: true, run: () => {} },
         { id: 'preview', label: t('showPreview'), icon: previewIcon, pressed: preview, run: togglePreview },
         { id: 'expand', label: t('expandAll'), icon: expandIcon, run: () => { expanded = new Set(['*']); } },
         { id: 'collapse', label: t('collapseAll'), icon: collapseIcon, run: () => { expanded = new Set(); } },
@@ -108,7 +135,7 @@
       {#if optionsAnchor}<div class="view-options"><Popup label={t('viewOptions')} anchor={optionsAnchor} onclose={() => { optionsAnchor = null; }} items={[
         { id: 'group', label: t('groupDirectories'), checked: !flat, run: () => { flat = !flat; } },
       ]} /></div>{/if}
-      <div class="files"><PagedFileTree selection={session.selection} oncount={count=>{session.count=count;}} onselectedids={selected=>{ids=selected;}} onopen={openDiff} ontoggle={(id,state)=>{if(!session.busy)session.selection=toggleRule(session.selection,id,state);}} onselect={selectFile} changes generation={browser.statusGeneration} revision={browser.statusRevision} {flat} bind:expanded onerror={error => browser.report(error)} /></div>
+      <div class="files"><PagedFileTree selection={session.selection} oncount={count=>{session.count=count;}} onselectedids={selected=>{ids=selected;}} onopen={openDiff} ontoggle={(id,state)=>{if(!session.busy)session.selection=toggleRule(session.selection,id,state);}} onselect={selectFile} oncontextmenu={contextMenu} changes generation={browser.statusGeneration} revision={browser.statusRevision} {flat} bind:expanded onerror={error => browser.report(error)} /></div>
       <div class="form">
         <label><input type="checkbox" checked={session.amend} disabled={session.busy || (!!browser.status?.operation || browser.status?.branch.oid === '(initial)')} onchange={event=>{const box=event.currentTarget;void amend().finally(()=>{box.checked=session.amend;});}} /> {t('amend')}</label>
         <button title="Ctrl+M" disabled={session.busy} onclick={()=>{void showHistory();}}>{c('history')}</button>
@@ -118,11 +145,13 @@
         {#if session.busy}<div role="status">{session.task}<progress aria-label={c('running')}></progress><button onclick={()=>void invoke('cancel_write',{generation:browser.generation}).catch(error=>browser.report(error))}>{c('cancel')}</button></div>{/if}
         {#if session.result?.kind === 'committed'}<p role="status">{c('committed')} {session.result.hash}</p>{/if}
         {#if session.result?.kind === 'recovery'}<div role="alert"><strong>{c('recovery')}</strong><p>{session.result.directory}</p><pre>{session.result.instructions}</pre></div>{/if}
+      {#if contextAnchor}<div class="context-popup"><Popup label={t('changes')} anchor={contextAnchor} items={contextActions} onclose={()=>{contextAnchor=null;}} /></div>{/if}
       </div>
     </section>
   {/snippet}
 </Tabs>
 {#if rollback}<RollbackDialog {browser} {ids} close={()=>{rollback=false;}} />{/if}
+{#if deleteRow?.path}<DeleteChangesDialog {browser} paths={[deleteRow.path]} expected={browser.status?.fingerprint ?? ''} close={()=>{deleteRow=null;}} />{/if}
 <style>
   .commit-panel { display: flex; flex-direction: column; height: 100%; min-height: 0; }
   .files { flex: 1; min-height: 0; --list-row-height: var(--commit-list-row-height); --space-inline: var(--commit-tree-gap); --tree-indent: var(--commit-tree-indent); }

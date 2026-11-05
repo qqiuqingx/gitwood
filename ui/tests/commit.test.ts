@@ -1,10 +1,17 @@
 import { expect, it, vi } from 'vitest';
 const ipc=vi.hoisted(()=>vi.fn());
 vi.mock('@tauri-apps/api/core',()=>({invoke:ipc}));
-import { amendMessage, blockSelection, canCommit, emptySelection, feedback, included, remember, toggleBlock, toggleRule } from '../src/features/commit/model';
+import { amendMessage, blockSelection, canCommit, emptySelection, feedback, included, remember, toggleBlock, toggleRule, includeCommitFile } from '../src/features/commit/model';
+import { browseText } from '../src/i18n/browse';
 import { CommitSession } from '../src/features/commit/session.svelte';
 import { RepositoryBrowser } from '../src/features/browse/browser.svelte';
 const path = { bytes:[100,105,114,47,102], display:'dir/f' };
+it('Commit File includes exactly the chosen file, clears its hunk selection, and uses translated menu copy',()=>{
+ const original=toggleBlock(emptySelection(),path,'preview',2,0);
+ const selected=includeCommitFile(original,'change/6469722f66',path);
+ expect(included(selected,path)).toBe(true);expect(selected.hunks).toEqual([]);
+ expect(browseText('commitFile','zh-CN')).toBe('提交文件…');
+});
 it('changes and untracked files default to excluded, directory/file rules survive refresh by bytes',()=>{
  let selection=emptySelection(); expect(included(selection,path)).toBe(false);expect(included(selection,path,true)).toBe(false);
  selection=toggleRule(selection,'changes/dir/6469722f','all');expect(included(selection,{...path,display:'new display'})).toBe(false);

@@ -13,6 +13,7 @@ pub use snapshot::{snapshot, Snapshot};
 static WRITES: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 mod rollback;
 pub use rollback::{rollback, rollback_patch};
+pub mod changes;
 
 pub mod branch;
 
@@ -33,3 +34,7 @@ mod merge_text;
 pub(crate) mod update_recovery;
 
 pub mod integrate;
+
+pub mod stash;
+
+pub mod history;

@@ -22,7 +22,7 @@ async fn comparison_pins_revisions_pages_files_and_previews_renames_additions_de
         .await
         .unwrap();
     let c = lease
-        .comparison_open("refs/heads/selected", false)
+        .comparison_open("refs/heads/selected", false, Some("refs/heads/main"))
         .await
         .unwrap();
     assert_eq!(c.commits, 1);
@@ -70,7 +70,10 @@ async fn comparison_pins_revisions_pages_files_and_previews_renames_additions_de
         .await
         .is_err());
     assert!(lease.comparison_commits(&c.id, 0, 201).await.is_err());
-    assert!(lease.comparison_open("--output=bad", false).await.is_err());
+    assert!(lease
+        .comparison_open("--output=bad", false, None)
+        .await
+        .is_err());
 }
 #[tokio::test]
 async fn worktree_comparison_detects_concurrent_edits_and_preserves_binary() {
@@ -83,7 +86,7 @@ async fn worktree_comparison_detects_concurrent_edits_and_preserves_binary() {
         .open(r.runner.clone(), r.options.clone())
         .await
         .unwrap();
-    let c = lease.comparison_open("HEAD", true).await.unwrap();
+    let c = lease.comparison_open("HEAD", true, None).await.unwrap();
     let a = lease
         .comparison_diff(&c.id, &RepoPath::new(b"A"))
         .await
@@ -122,7 +125,7 @@ async fn comparison_commit_sides_and_cache_are_scoped_to_session() {
         .await
         .unwrap();
     let c = lease
-        .comparison_open("refs/heads/selected", false)
+        .comparison_open("refs/heads/selected", false, None)
         .await
         .unwrap();
     let page = lease.comparison_commits(&c.id, 0, 200).await.unwrap();

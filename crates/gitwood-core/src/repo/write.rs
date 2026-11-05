@@ -88,6 +88,25 @@ pub struct InclusionSummary {
     pub count: usize,
 }
 impl Lease {
+    pub async fn history_write(
+        &self,
+        request: &crate::ops::history::HistoryWrite,
+        expected: &str,
+        askpass: Option<std::sync::Arc<crate::git::askpass::Askpass>>,
+    ) -> Result<crate::ops::history::HistoryOutcome, CommitError> {
+        let mut guard = self.writes.start(&self.options)?;
+        guard.options.askpass = askpass;
+        crate::ops::history::execute(&self.runner, &guard.options, request, expected).await
+    }
+    pub async fn history_children(
+        &self,
+        hash: &str,
+    ) -> Result<crate::ops::history::ChildCommits, GitError> {
+        crate::ops::history::children(&self.runner, &self.options, hash).await
+    }
+    pub async fn history_revert_has_merge(&self, hashes: &[String]) -> Result<bool, GitError> {
+        crate::ops::history::selection_has_merge(&self.runner, &self.options, hashes).await
+    }
     pub fn cancel_write(&self) {
         self.writes.cancel();
     }
@@ -639,6 +658,7 @@ impl Lease {
         Ok(crate::ops::remote::PushPreview {
             remote: preview.remote.clone(),
             branch: preview.branch.clone(),
+            source: preview.source.clone(),
             total: preview.total,
             start,
             commits: preview

@@ -2,6 +2,13 @@
   import IntegrationDialog from './IntegrationDialog.svelte';
   import ComparisonDialog from './ComparisonDialog.svelte';
   import UpstreamDialog from './UpstreamDialog.svelte';
+  import HistoryTreeDialog from '../browse/HistoryTreeDialog.svelte';
+  import HistoryChildrenDialog from './HistoryChildrenDialog.svelte';
+  import StashChangesDialog from './StashChangesDialog.svelte';
+  import StashManagerDialog from './StashManagerDialog.svelte';
+  import { stashText } from '../../i18n/stash';
+  import type { Commit } from '../browse/types';
+  import { browseText as b } from '../../i18n/browse';
   import { integrationText as m } from '../../i18n/integration';
   import { integrationEnabled, integrationErrorText, type Integration } from './integration';
   import { createActionRegistry } from '../../keymap/registry';
@@ -21,41 +28,89 @@
   import {
     branchFolderPrefix, branchSectionPrefix, defaultFavorite, trackCounts, branchPopupItems, branchForPreview, commitPushFeedback, defaultPushOptions, defaultUpdateStrategy, isNewPushTarget, updateRequest,
     pushRejectionText, remoteErrorText, type BranchPopupHandlers, type CheckoutMode, type CommitPushResult,
-    type PushOptions, type PushPreview, type RemoteError, type RemoteOutcome, type UpdateStrategy,
+    type HistoryAction, type PushOptions, type PushPreview, type RemoteError, type RemoteOutcome, type UpdateStrategy,
   } from './model';
   import { abortConfirmation, operationActions, operationLabel, sequenceErrorText, sequenceFeedback, type SequenceAction, type SequenceOutcome } from './operation';
   import { notifications } from '../notifications/center.svelte';
   import type { NoticeAction } from '../notifications/model';
   import { operationText } from '../../i18n/operation';
+  import { historyMenuText as ht } from '../../i18n/history-menu';
 
   let { browser, oncommitpush }: { browser: RepositoryBrowser; oncommitpush: () => void } = $props();
   let integration = $state<{ kind: Integration['kind']; seed: string } | null>(null);
-  let comparison = $state<{ left: string; working: boolean } | null>(null);
+  let comparison = $state<{ left: string; right: string | null; working: boolean } | null>(null);
   let upstreamBranch = $state<string | null>(null);
+  let historyTreeRevision = $state<string | null>(null);
+  let historyChildren = $state<string[]>([]);
+  let stashCreateOpen = $state(false), stashManagerOpen = $state(false);
+  let historyTarget = $state('');
+  let historyDetail = $state<Commit | null>(null);
+  let historyCommits = $state<string[]>([]);
+  let resetMode = $state<'soft' | 'mixed' | 'hard' | 'keep'>('mixed');
+  let historyCheckoutMode = $state<CheckoutMode>('normal');
+  let tagName = $state('');
+  let tagMessage = $state('');
+  let isAnnotatedTag = $state(false);
+  let remoteTagName = $state('');
+  let remoteTagRemote = $state('');
   $effect(() => {
     browser.project?.root;
-    untrack(() => { integration = null; comparison = null; upstreamBranch = null; });
+    untrack(() => { integration = null; comparison = null; upstreamBranch = null; historyTreeRevision = null; historyChildren = []; });
   });
   const canIntegrate = () => integrationEnabled(browser.refs, browser.status?.operation, busy || browser.commit.busy || !!integration || !!comparison || upstreamBranch !== null, browser.status?.conflicts, browser.status?.update_stash);
   const integrationActions = ['merge', 'rebase', 'pull'] as const;
   const actions = createActionRegistry();
+  const registeredHistoryActions: Partial<Record<HistoryAction, string>> = {
+    cherryPick: 'Git.CherryPick', revert: 'Git.Revert', reset: 'Git.ResetCurrentBranchToHere',
+    checkoutRevision: 'Git.CheckoutRevision', newTag: 'Git.NewTag', deleteTag: 'Git.DeleteTag',
+    deleteRemoteTag: 'Git.DeleteRemoteTag', pushTag: 'Git.PushTag', pushUpTo: 'Git.PushUpTo',
+    compare: 'Git.CompareVersions', localDiff: 'Git.ShowDiffWithLocal', browse: 'Git.ShowRepositoryAtRevision', child: 'Git.GoToChildCommit',
+  };
+  let historySelection: string[] = [];
   let actionTarget = '';
   for (const kind of integrationActions) actions.register(`Git.${kind[0].toUpperCase()}${kind.slice(1)}`, { run: () => openIntegration(kind, actionTarget), enabled: canIntegrate });
+  for (const [action, id] of Object.entries(registeredHistoryActions) as [HistoryAction, string][]) {
+    actions.register(id, { run: () => { void openHistoryAction(action, actionTarget, historySelection); }, enabled: () => canRunHistoryAction(action) });
+  }
   actions.register('Git.CheckoutWithRebase', { run: () => openIntegration('checkoutRebase', actionTarget), enabled: canIntegrate });
   actions.register('Git.CompareWithCurrent', { run: () => openComparison(false), enabled: () => !!browser.refs && !busy });
   actions.register('Git.ShowDiffWithWorkingTree', { run: () => openComparison(true), enabled: () => !!browser.refs && !busy });
   actions.register('Git.SetUpstream', { run: () => openUpstream(actionTarget), enabled: canIntegrate });
   actions.register('Git.UnsetUpstream', { run: () => { popup = false; void write('set_upstream', { name: actionTarget, upstream: null }); }, enabled: canIntegrate });
+  actions.register('Git.StashChanges', { run: () => { stashCreateOpen = true; }, enabled: () => !!browser.project && !busy && !browser.commit.busy && !browser.status?.operation && !browser.status?.conflicts && (browser.status?.changes ?? 0) + (browser.status?.untracked ?? 0) > 0 });
+  actions.register('Git.UnstashChanges', { run: () => { stashManagerOpen = true; }, enabled: () => !!browser.project && !busy && !browser.commit.busy });
+  function canHistoryWrite() {
+    return !!browser.refs?.head.head && browser.refs.head.head !== '(detached)' && !!browser.refs.head.oid && browser.refs.head.oid !== '(initial)' && !busy && !browser.commit.busy && !integration && !comparison && !upstreamBranch
+      && !browser.status?.operation && !browser.status?.conflicts && !browser.status?.update_stash;
+  }
+  function canHistoryApply() { return canHistoryWrite() && browser.status?.staged === 0; }
+  function currentHistorySelection() {
+    return historySelection.length ? historySelection : browser.selection.size ? [...browser.selection] : browser.selected ? [browser.selected] : [];
+  }
+  function canRunHistoryAction(action: HistoryAction) {
+    if (['compare', 'localDiff', 'browse', 'child'].includes(action)) {
+      const count = currentHistorySelection().length;
+      return !!browser.refs && !busy && (action !== 'compare' || count === 2) && count > 0;
+    }
+    if (action === 'cherryPick' || action === 'revert') return canHistoryApply();
+    return canHistoryWrite();
+  }
   export function runAction(id: string, target = '') {
     actionTarget = target;
     try { return actions.run(id); } finally { actionTarget = ''; }
   }
-  function openComparison(working: boolean) { if (!actionTarget) return; popup = false; comparison = { left: actionTarget, working }; }
+  function dispatchHistoryAction(action: HistoryAction, hash: string, selected: string[]) {
+    const id = registeredHistoryActions[action];
+    if (!id) return;
+    historySelection = selected;
+    try { runAction(id, hash); } finally { historySelection = []; }
+  }
+  function openComparison(working: boolean) { if (!actionTarget) return; popup = false; comparison = { left: actionTarget, right: null, working }; }
   function openIntegration(kind: Integration['kind'], seed = '') { if (!canIntegrate()) return; error = null; dialog = null; popup = false; integration = { kind, seed }; }
   function openUpstream(name: string) { dialog = null; popup = false; upstreamBranch = name; }
   let branchAnchor = $state<HTMLButtonElement>();
   let popup = $state(false);
-  let dialog = $state<'new' | 'rename' | 'delete' | 'checkout' | 'update' | 'push' | 'abort' | null>(null);
+  let dialog = $state<'new' | 'rename' | 'delete' | 'checkout' | 'update' | 'push' | 'abort' | 'historyReset' | 'historyTag' | 'historyCheckout' | 'historyLocalTagDelete' | 'historyRemoteTagDelete' | null>(null);
   let name = $state('');
   let newName = $state('');
   let start = $state('');
@@ -64,7 +119,7 @@
   let mode = $state<CheckoutMode>('normal');
   let updateStrategy = $state<UpdateStrategy>('merge');
   let updateStrategyLoading = $state(false);
-  let pushOptions = $state<PushOptions>({ remote: null, branch: null, forceWithLease: false, tags: false });
+  let pushOptions = $state<PushOptions>({ remote: null, branch: null, forceWithLease: false, tags: false, upTo: null });
   let preview = $state<PushPreview | null>(null);
   let previewSelection = $state('');
   let previewLoading = $state(false);
@@ -75,13 +130,22 @@
   let affectedFiles = $state<string[]>([]);
   let result = $state<CommitPushResult | null>(null);
   let workflowDialog = $state<HTMLDialogElement>();
+  let historyCancelButton = $state<HTMLButtonElement>();
   let editingTarget = $state(false);
   let pushMenu = $state<HTMLElement | null>(null);
   const projectName = $derived(browser.project?.root.split(/[\\/]/).filter(Boolean).pop() ?? '');
   // Modal so the dialog is centred above the window instead of anchored to the title bar.
   $effect(() => {
     const element = workflowDialog;
-    if (element && dialog && !element.open) element.showModal();
+    if (element && dialog && !element.open) {
+      element.showModal();
+      if ((dialog === 'historyReset' && resetMode === 'hard') || dialog === 'historyLocalTagDelete' || dialog === 'historyRemoteTagDelete') {
+        requestAnimationFrame(() => historyCancelButton?.focus());
+      }
+    }
+  });
+  $effect(() => {
+    if (dialog === 'historyReset' && resetMode === 'hard') requestAnimationFrame(() => historyCancelButton?.focus());
   });
 
   const current = $derived(browser.refs?.head.head ?? 'HEAD');
@@ -96,6 +160,8 @@
   const newTarget = $derived(isNewPushTarget(refs, pushOptions));
   const handlers: BranchPopupHandlers = {
     canIntegrate,
+    canHistoryWrite,
+    canHistoryApply,
     merge: ref => { runAction('Git.Merge', ref); },
     rebase: ref => { runAction('Git.Rebase', ref); },
     checkoutRebase: ref => { runAction('Git.CheckoutWithRebase', ref); },
@@ -112,6 +178,7 @@
     newBranch: () => { name = ''; start = ''; checkout = true; dialog = 'new'; popup = false; },
     commit: () => { popup = false; document.querySelector<HTMLElement>('.commit-panel textarea')?.focus(); },
     fetch: () => { popup = false; void fetchRemote(); },
+    historyAction: (action, hash, selected) => dispatchHistoryAction(action, hash, selected),
   };
   // Folder expansion lives for this window only, like IDEA's branch popup tree state.
   let branchFolders = $state<ReadonlySet<string>>(new Set());
@@ -289,6 +356,99 @@
     await write('push', { options: { ...pushOptions, forceWithLease: force } });
   }
   function applyTarget() { editingTarget = false; error = null; preview = null; previewSelection = ''; void loadPreview(); }
+  async function openHistoryAction(action: HistoryAction, hash: string, selected: string[]) {
+    const selection = selected.length ? selected : currentHistorySelection();
+    const target = hash || selection[0] || browser.selected || '';
+    historyTarget = target; historyCommits = selection; historyDetail = browser.details?.hash === target ? browser.details : null; error = null; outcome = null;
+    if (action === 'compare') {
+      const positions = new Map([...browser.rows.values()].map(row => [row.commit.hash, row.index]));
+      const ordered = selection.slice().sort((a, b) => (positions.get(a) ?? Number.MAX_SAFE_INTEGER) - (positions.get(b) ?? Number.MAX_SAFE_INTEGER));
+      if (ordered.length === 2) comparison = { left: ordered[1], right: ordered[0], working: false };
+      return;
+    }
+    if (action === 'localDiff') { comparison = { left: target, right: null, working: true }; return; }
+    if (action === 'browse') { historyTreeRevision = target; return; }
+    if (action === 'child') {
+      try {
+        const result = await invoke<{ children: string[] }>('history_children', { generation: browser.generation, hash: target });
+        const positions = await Promise.all(result.children.map(child => browser.historyPosition(child)));
+        const visible = result.children.map((child, index) => ({ child, position: positions[index] }))
+          .filter((item): item is { child: string; position: number } => item.position !== null)
+          .sort((a, b) => a.position - b.position)
+          .map(item => item.child);
+        if (visible.length === 1) await browser.goToCommit(visible[0]);
+        else historyChildren = visible;
+      } catch (cause) { browser.report(cause); }
+      return;
+    }
+    if (action === 'reset') { resetMode = 'mixed'; dialog = 'historyReset'; if (!historyDetail) void loadHistoryDetail(target); return; }
+    if (action === 'newTag') { tagName = ''; tagMessage = ''; isAnnotatedTag = false; dialog = 'historyTag'; return; }
+    if (action === 'checkoutRevision') { historyCheckoutMode = 'normal'; affectedFiles = []; dialog = 'historyCheckout'; return; }
+    if (action === 'pushUpTo') { openPush({ ...defaultPushOptions(browser.refs!), upTo: target }); return; }
+    if (action === 'cherryPick') { void submitHistory({ kind: 'cherryPick', commits: selection, recordOrigin: true, empty: 'skip' }); return; }
+    if (action === 'revert') { void submitHistory({ kind: 'revert', commits: selection }); return; }
+    const name = target.replace(/^refs\/tags\//, '');
+    if (action === 'deleteTag') { tagName = name; dialog = 'historyLocalTagDelete'; return; }
+    if (action === 'deleteRemoteTag') {
+      const remote = currentRemote();
+      if (!remote) { notifications.notify({ kind: 'error', title: ht('deleteRemoteTag'), detail: m('upstreamRequired'), group: 'git' }); return; }
+      remoteTagName = name; remoteTagRemote = remote; dialog = 'historyRemoteTagDelete'; return;
+    }
+    if (action === 'pushTag') {
+      const remote = currentRemote();
+      if (!remote) { notifications.notify({ kind: 'error', title: ht('pushTag').replace('{name}', name), detail: m('upstreamRequired'), group: 'git' }); return; }
+      void submitHistory({ kind: 'pushTag', remote, name });
+    }
+  }
+  let historyDetailTicket = 0;
+  async function loadHistoryDetail(hash: string) {
+    const generation = browser.generation, ticket = ++historyDetailTicket;
+    try {
+      const detail = await invoke<Commit>('commit_details', { generation, hash });
+      if (ticket === historyDetailTicket && generation === browser.generation) historyDetail = detail;
+    } catch (cause) {
+      if (ticket === historyDetailTicket && generation === browser.generation) error = cause as RemoteError;
+    }
+  }
+  function currentRemote(): string | null {
+    const upstream = refs?.local.find(ref => ref.name === `refs/heads/${current}`)?.upstream;
+    const remote = upstream?.match(/^refs\/remotes\/([^/]+)\//)?.[1];
+    const remotes = Object.keys(refs?.remotes ?? {});
+    return remote ?? (remotes.includes('origin') ? 'origin' : remotes[0] ?? null);
+  }
+  async function submitHistory(request: Record<string, unknown>) {
+    if (!browser.project || busy) return;
+    busy = true; error = null;
+    try {
+      const value = await invoke<{ kind: string; files?: { display: string }[]; stash?: string; detail?: string }>('history_write', { generation: browser.generation, expected: expected(), request });
+      await browser.refresh({ status: true, refs: true, history: true });
+      if (value.kind === 'completed') {
+        dialog = null;
+        notifications.notify({ kind: 'success', title: m('completed'), group: 'git' });
+      } else if (value.kind === 'conflicts') {
+        dialog = null;
+        notifications.notify({ kind: 'warning', title: m('conflicts'), detail: operationText('conflicts', { count: value.files?.length ?? 0 }), files: value.files?.map(file => file.display), actions: [{ label: conflictText('resolve'), run: requestResolution }], group: 'git' });
+      } else if (value.kind === 'localChanges') {
+        affectedFiles = value.files?.map(file => file.display) ?? []; historyCheckoutMode = 'normal'; dialog = 'historyCheckout';
+      } else if (value.kind === 'stashRecovery') {
+        dialog = null;
+        notifications.notify({ kind: 'error', title: m('recover'), detail: [`Stash ${value.stash} was retained.`, value.detail].filter(Boolean).join('\n'), group: 'git' });
+      } else if (value.kind === 'stopped') {
+        if (dialog) error = { key: 'history.failed', detail: value.detail ?? '', guidance: 'remote.tryFetchInTerminal' };
+        else notifications.notify({ kind: 'error', title: m('interrupted'), detail: value.detail ?? '', group: 'operation' });
+      }
+    } catch (cause) {
+      const text = remoteErrorText(cause as RemoteError);
+      if (dialog) error = cause as RemoteError;
+      else notifications.notify({ kind: 'error', title: text.title, detail: [text.detail, text.action].filter(Boolean).join('\n'), group: 'git' });
+    }
+    finally { busy = false; }
+  }
+  function submitReset() { void submitHistory({ kind: 'reset', target: historyTarget, mode: resetMode }); }
+  function submitTag() { if (!tagName.trim() || (isAnnotatedTag && !tagMessage.trim())) return; void submitHistory({ kind: 'createTag', name: tagName.trim(), target: historyTarget, message: isAnnotatedTag ? tagMessage.trim() : null }); }
+  function submitRevisionCheckout() { void submitHistory({ kind: 'checkoutRevision', target: historyTarget, mode: historyCheckoutMode }); }
+  function submitDeleteLocalTag() { void submitHistory({ kind: 'deleteTag', name: tagName }); }
+  function submitDeleteRemoteTag() { void submitHistory({ kind: 'deleteRemoteTag', remote: remoteTagRemote, name: remoteTagName }); }
   export async function commitAndPush() {
     if (!browser.commit.message.trim() || (!browser.commit.count && operation?.kind !== 'merge')) return;
     if (browser.status?.update_stash && operation) { await continueAndPush(); return; }
@@ -343,8 +503,12 @@
 </script>
 
 {#if integration}{#key JSON.stringify(integration)}<IntegrationDialog {browser} kind={integration.kind} seed={integration.seed} bind:busy bind:progress onclose={() => { integration = null; }} onresult={value => notifyIntegration(value)} />{/key}{/if}
-{#if comparison}<ComparisonDialog {browser} left={comparison.left} working={comparison.working} onclose={() => { comparison = null; }} />{/if}
+{#if comparison}<ComparisonDialog {browser} left={comparison.left} right={comparison.right} working={comparison.working} onclose={() => { comparison = null; }} />{/if}
+{#if historyTreeRevision}<HistoryTreeDialog {browser} revision={historyTreeRevision} onclose={() => { historyTreeRevision = null; }} />{/if}
+{#if historyChildren.length}<HistoryChildrenDialog children={historyChildren} onselect={hash => { historyChildren = []; void browser.goToCommit(hash); }} onclose={() => { historyChildren = []; }} />{/if}
 {#if upstreamBranch !== null}<UpstreamDialog {browser} name={upstreamBranch} bind:busy onclose={() => { upstreamBranch = null; }} />{/if}
+{#if stashCreateOpen}<StashChangesDialog {browser} onclose={() => { stashCreateOpen = false; }} />{/if}
+{#if stashManagerOpen}<StashManagerDialog {browser} onclose={() => { stashManagerOpen = false; }} />{/if}
 <ConflictDialog {browser} oncontinue={() => requestSequence('continue')} />
 <button class="branch-control" bind:this={branchAnchor} aria-expanded={popup} disabled={!browser.project}
   title={ahead || behind ? `${current} ↑${ahead} ↓${behind}` : current} onclick={() => { popup = !popup; }}>
@@ -358,6 +522,8 @@
 {#if busy && !dialog && !integration && upstreamBranch === null}<span class="header-progress" role="status">{progress || 'Working…'}<progress></progress><button onclick={() => void invoke('cancel_write', { generation: browser.generation })}>Cancel</button></span>{/if}
 {#if browser.status?.update_stash && !operation && !browser.status.conflicts}<button disabled={busy} onclick={() => requestSequence('continue')}>{m('restoreSaved')}</button>{/if}
 <span class="remote-actions">
+  <button title={stashText('stash')} disabled={!browser.project || busy || browser.commit.busy || !browser.status || browser.status.changes + browser.status.untracked === 0 || !!browser.status.operation || !!browser.status.conflicts} onclick={() => actions.run('Git.StashChanges')}>{stashText('stash')}</button>
+  <button title={stashText('unstash')} disabled={!browser.project || busy || browser.commit.busy} onclick={() => actions.run('Git.UnstashChanges')}>{stashText('unstash')}</button>
   <button title={gitText('updateProject')} disabled={!browser.project || busy} onclick={() => handlers.update()}>↓</button>
   <button title={gitText('pushAction')} disabled={!browser.project || busy} onclick={() => openPush(null)}>↑</button>
   {#each integrationActions as kind}<button disabled={!canIntegrate()} onclick={() => runAction(`Git.${kind[0].toUpperCase()}${kind.slice(1)}`)}>{m(kind)}</button>{/each}
@@ -399,6 +565,35 @@
       <label><input type="radio" name="checkout" value="smart" bind:group={mode} /> Smart Checkout (stash, checkout, restore)</label>
       <label><input type="radio" name="checkout" value="force" bind:group={mode} /> Force Checkout (discard local changes)</label>
       <footer><button onclick={closeDialog}>Cancel</button><button onclick={() => void submitCheckout()}>Checkout</button></footer>
+    {:else if dialog === 'historyReset'}
+      <h2 id="workflow-title">{ht('resetTitle')}</h2><p>{historyTarget.slice(0, 12)}</p>
+      {#if historyDetail}<p>{ht('commitSubject')}: {historyDetail.subject}</p><p>{ht('commitAuthor')}: {historyDetail.author}</p>{:else}<p role="status">{b('loading')}</p>{/if}
+      <label><input type="radio" name="history-reset" value="soft" bind:group={resetMode} /> {ht('soft')}</label>
+      <label><input type="radio" name="history-reset" value="mixed" bind:group={resetMode} /> {ht('mixed')}</label>
+      <label><input type="radio" name="history-reset" value="hard" bind:group={resetMode} /> {ht('hard')}</label>
+      <label><input type="radio" name="history-reset" value="keep" bind:group={resetMode} /> {ht('keep')}</label>
+      {#if resetMode === 'hard'}<p class="warning">{ht('resetHardWarning')}</p>{/if}
+      <footer><button bind:this={historyCancelButton} class:default={resetMode === 'hard'} onclick={closeDialog}>{ht('cancel')}</button><button class:default={resetMode !== 'hard'} disabled={busy} onclick={submitReset}>{ht('resetButton')}</button></footer>
+    {:else if dialog === 'historyTag'}
+      <h2 id="workflow-title">{ht('newTagTitle')}</h2><p>{historyTarget.slice(0, 12)}</p>
+      <label>{ht('tagName')} <input bind:value={tagName} /></label>
+      <label><input type="checkbox" bind:checked={isAnnotatedTag} /> {ht('annotated')}</label>
+      {#if isAnnotatedTag}<label>{ht('tagMessage')} <textarea bind:value={tagMessage}></textarea></label>{/if}
+      <footer><button onclick={closeDialog}>{ht('cancel')}</button><button class="default" disabled={busy || !tagName.trim() || (isAnnotatedTag && !tagMessage.trim())} onclick={submitTag}>{ht('newTagTitle')}</button></footer>
+    {:else if dialog === 'historyCheckout'}
+      <h2 id="workflow-title">{ht('revision').replace('{hash}', historyTarget.slice(0, 8))}</h2><p>{ht('checkoutMode')}</p>
+      {#if affectedFiles.length}<ul>{#each affectedFiles as file}<li>{file}</li>{/each}</ul>{/if}
+      <label><input type="radio" name="revision-checkout" value="normal" bind:group={historyCheckoutMode} /> {ht('normalCheckout')}</label>
+      <label><input type="radio" name="revision-checkout" value="smart" bind:group={historyCheckoutMode} /> {ht('smartCheckout')}</label>
+      <label><input type="radio" name="revision-checkout" value="force" bind:group={historyCheckoutMode} /> {ht('forceCheckout')}</label>
+      <footer><button onclick={closeDialog}>{ht('cancel')}</button><button onclick={submitRevisionCheckout}>{ht('checkout')}</button></footer>
+    {:else if dialog === 'historyLocalTagDelete'}
+      <h2 id="workflow-title">{ht('deleteTag').replace('{name}', tagName)}</h2><p>{tagName}</p>
+      <footer><button bind:this={historyCancelButton} class="default" onclick={closeDialog}>{ht('cancel')}</button><button disabled={busy} onclick={submitDeleteLocalTag}>{ht('deleteTag').replace('{name}', tagName)}</button></footer>
+    {:else if dialog === 'historyRemoteTagDelete'}
+      <h2 id="workflow-title">{ht('deleteRemoteTag').replace('{name}', remoteTagName)}</h2>
+      <p>{ht('deleteRemoteTagConfirm').replace('{name}', remoteTagName).replace('{remote}', remoteTagRemote)}</p>
+      <footer><button bind:this={historyCancelButton} class="default" onclick={closeDialog}>{ht('cancel')}</button><button disabled={busy} onclick={submitDeleteRemoteTag}>{ht('deleteRemoteTag').replace('{name}', remoteTagName)}</button></footer>
     {:else if dialog === 'update'}
       <h2 id="workflow-title">Update Project</h2><p>Fetch and update the current branch.</p>
       <label><input type="radio" name="update" value="merge" bind:group={updateStrategy} /> Merge</label>

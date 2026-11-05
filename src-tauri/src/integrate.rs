@@ -7,6 +7,48 @@ use gitwood_core::{
     repo::{comparison::Summary, file_tree::FileTreePage, preview::Preview, RepoPath},
 };
 use tauri::AppHandle;
+
+#[tauri::command]
+pub async fn history_tree_open(
+    sessions: WindowSession,
+    generation: u64,
+    revision: String,
+) -> Result<gitwood_core::repo::history_browser::HistoryTreeSummary, RemoteError> {
+    let lease = sessions.lease(generation)?;
+    let result = lease.history_tree_open(&revision).await;
+    sessions.check(&lease)?;
+    Ok(result?)
+}
+
+#[tauri::command]
+pub async fn history_tree_files(
+    sessions: WindowSession,
+    generation: u64,
+    id: String,
+    expanded: Vec<String>,
+    start: usize,
+    end: usize,
+) -> Result<FileTreePage, RemoteError> {
+    let lease = sessions.lease(generation)?;
+    let result = lease
+        .history_tree_files(&id, &expanded.into_iter().collect(), start, end)
+        .await;
+    sessions.check(&lease)?;
+    Ok(result?)
+}
+
+#[tauri::command]
+pub async fn history_tree_diff(
+    sessions: WindowSession,
+    generation: u64,
+    id: String,
+    path: RepoPath,
+) -> Result<Preview, RemoteError> {
+    let lease = sessions.lease(generation)?;
+    let result = lease.history_tree_diff(&id, &path).await;
+    sessions.check(&lease)?;
+    Ok(result?)
+}
 #[tauri::command]
 pub async fn integrate(
     app: AppHandle,
@@ -50,9 +92,12 @@ pub async fn comparison_open(
     generation: u64,
     left: String,
     working: bool,
+    right: Option<String>,
 ) -> Result<Summary, RemoteError> {
     let lease = sessions.lease(generation)?;
-    let result = lease.comparison_open(&left, working).await;
+    let result = lease
+        .comparison_open(&left, working, right.as_deref())
+        .await;
     sessions.check(&lease)?;
     Ok(result?)
 }

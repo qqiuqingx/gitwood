@@ -20,4 +20,4 @@ export interface RepositoryError { generation?: number; key?: string; path?: str
 export type OperationKind = 'merge' | 'rebase' | 'applyMailbox' | 'cherryPick' | 'revert' | 'bisect';
 /** Merge / rebase / cherry-pick / revert / bisect in progress, read from the Git directory. */
 export interface Operation { kind: OperationKind; branch: string | null; step: number | null; total: number | null }
-export interface StatusSummary { update_stash?: string | null; conflict_files: import('../conflicts/model').ConflictFile[]; merge_message: string | null; fingerprint: string; branch: Branch; changes: number; untracked: number; conflicts: number; operation: Operation | null }
+export interface StatusSummary { update_stash?: string | null; conflict_files: import('../conflicts/model').ConflictFile[]; merge_message: string | null; fingerprint: string; branch: Branch; changes: number; staged: number; untracked: number; conflicts: number; operation: Operation | null }

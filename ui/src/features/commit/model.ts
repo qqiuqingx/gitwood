@@ -6,6 +6,12 @@ export interface Selection { rules: Rule[]; hunks: Hunks[] }
 export type CommitResult = { kind: 'committed'; hash: string } | { kind: 'recovery'; hash: string; directory: string; instructions: string; reason: string };
 export const emptySelection = (): Selection => ({ rules: [], hunks: [] });
 export const pathKey = (path: RepoPath) => path.bytes.map(b => b.toString(16).padStart(2, '0')).join('');
+export function includeCommitFile(selection: Selection, id: string, path: RepoPath): Selection {
+  return {
+    rules: [...selection.rules.filter(rule => rule.id !== id), { id, included: true }],
+    hunks: selection.hunks.filter(hunk => pathKey(hunk.path) !== pathKey(path)),
+  };
+}
 export function matches(id: string, path: RepoPath, untracked: boolean) {
   const group = untracked ? 'unversioned' : 'changes', file = untracked ? 'untracked' : 'change';
   return id === group || id === `${file}/${pathKey(path)}` || (id.startsWith(`${group}/dir/`) && pathKey(path).startsWith(id.slice(`${group}/dir/`.length)));

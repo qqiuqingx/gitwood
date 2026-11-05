@@ -59,13 +59,14 @@ pub(super) async fn open(
     o: &RunOptions,
     selected: &str,
     working: bool,
+    right_selected: Option<&str>,
 ) -> Result<Comparison, GitError> {
     let before = ops::snapshot(r, o).await?.fingerprint;
     let left = ops::integrate::pin(r, o, selected).await?;
     let right = if working {
         None
     } else {
-        Some(ops::integrate::pin(r, o, "HEAD").await?)
+        Some(ops::integrate::pin(r, o, right_selected.unwrap_or("HEAD")).await?)
     };
     let mut args = vec![
         "--name-status".into(),

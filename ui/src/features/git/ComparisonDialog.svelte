@@ -9,7 +9,7 @@
   import type { FileRow } from '../browse/PagedFileTree.svelte';
   import type { Commit, RepoPath } from '../browse/types';
   import type { Content, DiffResult } from '../diff/types';
-  let { browser, left, working, onclose }: { browser: RepositoryBrowser; left: string; working: boolean; onclose: () => void } = $props();
+  let { browser, left, right = null, working, onclose }: { browser: RepositoryBrowser; left: string; right?: string | null; working: boolean; onclose: () => void } = $props();
   interface Summary { id: string; left: string; right: string | null; commits: number }
   interface Preview { left: Content; right: Content; result: DiffResult | null; leftLabel: string; rightLabel: string }
   let element: HTMLDialogElement;
@@ -25,7 +25,7 @@
     const generation = browser.generation;
     let alive = true;
     summary = null; preview = null; selectionTicket++; chosen = null; rows = new Map(); commits = new Map(); total = 0; error = ''; ticket++;
-    void invoke<Summary>('comparison_open', { generation, left, working }).then(value => { if (alive) summary = value; }).catch(cause => { if (alive) error = String((cause as { detail?: string }).detail ?? cause); });
+    void invoke<Summary>('comparison_open', { generation, left, right, working }).then(value => { if (alive) summary = value; }).catch(cause => { if (alive) error = String((cause as { detail?: string }).detail ?? cause); });
     return () => { alive = false; };
   });
   $effect(() => { summary; expanded; tab; untrack(() => { if (summary) void load({ start: 0, end: 40 }, true); }); });

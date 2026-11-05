@@ -47,3 +47,35 @@ pub(super) async fn require_editable(
     require_no_operation(context).await?;
     Ok(tx)
 }
+
+/// Shared preflight for Git commands that need to acquire the index lock themselves.
+/// The caller rechecks the repository snapshot immediately before invoking Git.
+pub(super) async fn check_editable(
+    context: &Context<'_>,
+    expected: &str,
+) -> Result<(), CommitError> {
+    crate::history::details::validate_hash(expected)?;
+    context.require_root().await?;
+    if context.head().await?.as_deref() != Some(expected) {
+        return Err(CommitError::ConcurrentChange);
+    }
+    let index = context.git_path("index").await?;
+    if index.with_extension("lock").exists() {
+        return Err(CommitError::IndexLocked(index));
+    }
+    let branch = crate::repo::status::read(context.runner, &context.options)
+        .await?
+        .branch;
+    if branch
+        .head
+        .as_deref()
+        .is_none_or(|name| name == "(detached)")
+        || branch.oid.as_deref().is_none_or(|oid| oid == "(initial)")
+    {
+        return Err(CommitError::InvalidSelection(
+            "history operations require a checked out branch".into(),
+        ));
+    }
+    require_no_operation(context).await?;
+    Ok(())
+}

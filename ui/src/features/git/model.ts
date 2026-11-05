@@ -5,8 +5,8 @@ import { integrationText as t } from '../../i18n/integration';
 
 export type CheckoutMode = 'normal' | 'smart' | 'force';
 export type UpdateStrategy = 'merge' | 'rebase';
-export interface PushOptions { remote: string | null; branch: string | null; forceWithLease: boolean; tags: boolean }
-export interface PushPreview { remote: string; branch: string; commits: string[]; subjects: string[]; total: number; start: number }
+export interface PushOptions { remote: string | null; branch: string | null; forceWithLease: boolean; tags: boolean; upTo?: string | null }
+export interface PushPreview { remote: string; branch: string; source: string; commits: string[]; subjects: string[]; total: number; start: number }
 export interface PushRef { flag: string; source: string; target: string; summary: string; rejection?: string | null }
 export type RemoteOutcome =
   | { kind: 'completed' }
@@ -52,7 +52,7 @@ export function branchItem(ref: Reference, refs: References, handlers: BranchPop
     { id: `${ref.name}:merge`, label: t('mergeCurrent'), disabled: !canIntegrate, run: () => handlers.merge(ref.name) },
     { id: `${ref.name}:rebase`, label: t('rebaseCurrent'), disabled: !canIntegrate, run: () => handlers.rebase(ref.name) },
     { id: `${ref.name}:update`, label: gitText('updateBranch'), disabled: !ref.upstream, run: () => handlers.update() },
-    { id: `${ref.name}:push`, label: gitText('push'), run: () => handlers.push(local ? { remote: null, branch: name, forceWithLease: false, tags: false } : null) },
+    { id: `${ref.name}:push`, label: gitText('push'), run: () => handlers.push(local ? { remote: null, branch: name, forceWithLease: false, tags: false, upTo: null } : null) },
   ];
   if (local) {
     children.push(
@@ -95,6 +95,8 @@ function branchTree(entries: { ref: Reference; name: string }[], refs: Reference
 
 export interface BranchPopupHandlers {
   canIntegrate: () => boolean;
+  canHistoryWrite?: () => boolean;
+  canHistoryApply?: () => boolean;
   merge: (ref: string) => void;
   rebase: (ref: string) => void;
   checkoutRebase: (ref: string) => void;
@@ -111,7 +113,9 @@ export interface BranchPopupHandlers {
   newBranch: () => void;
   commit: () => void;
   fetch: () => void;
+  historyAction?: (action: HistoryAction, hash: string, selected: string[]) => void;
 }
+export type HistoryAction = 'compare' | 'localDiff' | 'browse' | 'reset' | 'revert' | 'cherryPick' | 'checkoutRevision' | 'newTag' | 'pushUpTo' | 'child' | 'deleteTag' | 'deleteRemoteTag' | 'pushTag';
 
 export function branchPopupItems(refs: References, handlers: BranchPopupHandlers,
   expanded: ReadonlySet<string> = new Set(), toggle: (id: string) => void = () => {}): PopupItem[] {
@@ -150,7 +154,7 @@ export function defaultPushOptions(refs: References): PushOptions {
   const head = refs.head.head;
   const local = refs.local.find(ref => ref.name === `refs/heads/${head}`);
   const upstream = local?.upstream?.match(/^refs\/remotes\/([^/]+)\/(.+)$/);
-  return { remote: upstream?.[1] ?? null, branch: upstream?.[2] ?? head ?? null, forceWithLease: false, tags: false };
+  return { remote: upstream?.[1] ?? null, branch: upstream?.[2] ?? head ?? null, forceWithLease: false, tags: false, upTo: null };
 }
 
 export function defaultUpdateStrategy(configured?: string | null): UpdateStrategy {
