@@ -32,6 +32,7 @@ pub struct Lease {
 }
 #[derive(Default)]
 pub(super) struct Data {
+    pub(super) comparison: Option<Arc<super::comparison::Comparison>>,
     layout: Option<GraphLayout>,
     /// Per layout row: reachable from the current branch (empty = no highlight).
     current_branch: Vec<bool>,
@@ -51,6 +52,9 @@ pub struct StatusSummary {
     pub changes: usize,
     pub untracked: usize,
     pub conflicts: usize,
+    pub conflict_files: Vec<crate::ops::conflict::ConflictFile>,
+    pub merge_message: Option<String>,
+    pub update_stash: Option<String>,
     /// Merge, rebase, cherry-pick, revert or bisect in progress.
     pub operation: Option<super::operation::Operation>,
     pub fingerprint: String,
@@ -199,7 +203,7 @@ impl Sessions {
     }
 }
 impl Lease {
-    fn ensure_current(&self) -> Result<(), GitError> {
+    pub(super) fn ensure_current(&self) -> Result<(), GitError> {
         if self.options.cancellation.is_cancelled() {
             Err(invalid("repository.stale"))
         } else {
@@ -210,6 +214,14 @@ impl Lease {
     pub async fn status(&self) -> Result<StatusSummary, GitError> {
         let before = crate::ops::snapshot(&self.runner, &self.options).await?;
         let status = status::read(&self.runner, &self.options).await?;
+        let conflict_files =
+            crate::ops::conflict::files(&self.runner, &self.options, &status.conflicts).await?;
+        let merge_message = match std::fs::read_to_string(self.repository.git_dir.join("MERGE_MSG"))
+        {
+            Ok(message) => Some(message),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
+            Err(e) => return Err(e.into()),
+        };
         let after = crate::ops::snapshot(&self.runner, &self.options).await?;
         if before != after {
             return Err(invalid("repository changed while reading status; refresh"));
@@ -235,6 +247,9 @@ impl Lease {
             changes,
             untracked: status.untracked.len(),
             conflicts: status.conflicts.len(),
+            conflict_files,
+            merge_message,
+            update_stash: crate::ops::update_recovery::pending(&self.repository.git_dir)?,
             operation,
             fingerprint: after.fingerprint,
         };

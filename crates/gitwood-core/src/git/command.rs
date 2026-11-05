@@ -2,7 +2,7 @@ use super::{askpass::Askpass, CancellationToken, GitError};
 use std::{collections::BTreeMap, ffi::OsString, path::PathBuf, sync::Arc, time::Duration};
 
 /// Local, non-networking operations only. Aliases, config mutation and remote commands
-/// cannot be represented as a background read.
+/// cannot be represented as a background read, except argument-free remote-name enumeration.
 #[derive(Clone, Copy, Debug)]
 pub enum ReadOperation {
     Status,
@@ -15,6 +15,8 @@ pub enum ReadOperation {
     DiffTree,
     ForEachRef,
     CatFile,
+    CheckRefFormat,
+    RemoteNames,
 }
 
 impl ReadOperation {
@@ -30,6 +32,8 @@ impl ReadOperation {
             Self::DiffTree => "diff-tree",
             Self::ForEachRef => "for-each-ref",
             Self::CatFile => "cat-file",
+            Self::CheckRefFormat => "check-ref-format",
+            Self::RemoteNames => "remote",
         }
     }
     fn is_diff(self) -> bool {
@@ -143,6 +147,11 @@ pub(super) fn read_config_arguments() -> Vec<OsString> {
 }
 
 fn validate_read(read: &ReadCommand) -> Result<(), GitError> {
+    if matches!(read.operation, ReadOperation::RemoteNames) && !read.args.is_empty() {
+        return Err(GitError::InvalidCommand(
+            "remote names read accepts no arguments".into(),
+        ));
+    }
     let mut format_value = false;
     for arg in read.args.iter().take_while(|a| *a != "--") {
         let arg = arg.to_string_lossy();

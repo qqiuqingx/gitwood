@@ -78,7 +78,7 @@ async fn command(
         .await?
         .stdout)
 }
-async fn validate(r: &GitRunner, o: &RunOptions, name: &str) -> Result<(), GitError> {
+pub(super) async fn validate(r: &GitRunner, o: &RunOptions, name: &str) -> Result<(), GitError> {
     // Reject revision shorthand as well as options; check-ref-format expands @{-n}.
     if name.starts_with('-') || name.starts_with('@') || name.is_empty() {
         return Err(crate::repo::invalid("branch.invalidName"));

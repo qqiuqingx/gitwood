@@ -131,6 +131,7 @@ pub enum RemoteOutcome {
         stash: Option<String>,
     },
     StashRecovery {
+        detail: String,
         stash: String,
         files: Vec<RepoPath>,
     },
@@ -184,7 +185,7 @@ pub async fn default_update_strategy(
         .ok_or_else(|| repo::invalid("remote.detachedHead"))?;
     configured_update_strategy(r, o, &branch).await
 }
-async fn remote_name(
+pub(super) async fn remote_name(
     r: &GitRunner,
     o: &RunOptions,
     requested: Option<&str>,
@@ -203,7 +204,10 @@ async fn remote_name(
     }
     Ok(name.into())
 }
-async fn transport_options(r: &GitRunner, o: &RunOptions) -> Result<RunOptions, GitError> {
+pub(super) async fn transport_options(
+    r: &GitRunner,
+    o: &RunOptions,
+) -> Result<RunOptions, GitError> {
     let mut options = o.clone();
     options.env.insert("GIT_TERMINAL_PROMPT".into(), "0".into());
     let inherited = std::env::var_os("GIT_SSH_COMMAND").is_some()
@@ -371,11 +375,18 @@ async fn stash_id(r: &GitRunner, o: &RunOptions) -> Result<Option<String>, GitEr
         Err(e) => Err(e),
     }
 }
-async fn restore(r: &GitRunner, o: &RunOptions, stash: &str) -> Result<RemoteOutcome, RemoteError> {
-    if super::branch::stash_position(r, o, stash).await?.is_none()
-        || cmd(r, o, "stash", &["apply", stash]).await.is_err()
-    {
+pub(super) async fn restore(
+    r: &GitRunner,
+    o: &RunOptions,
+    stash: &str,
+) -> Result<RemoteOutcome, RemoteError> {
+    super::update_recovery::clear(r, o).await?;
+    if super::branch::stash_position(r, o, stash).await?.is_none() {
+        return Err(repo::invalid("remote.stashChanged").into());
+    }
+    if let Err(error) = cmd(r, o, "stash", &["apply", stash]).await {
         return Ok(RemoteOutcome::StashRecovery {
+            detail: redact(&error.to_string()),
             stash: stash.into(),
             files: repo::status::read(r, o)
                 .await?
@@ -388,6 +399,31 @@ async fn restore(r: &GitRunner, o: &RunOptions, stash: &str) -> Result<RemoteOut
     super::branch::drop_saved_stash(r, o, stash).await?;
     Ok(RemoteOutcome::Completed)
 }
+/// Save tracked changes and persist ownership before any integrating write. Untracked
+/// files stay in place; Git refuses overwrites. Cancellation keeps the recovery marker.
+pub(super) async fn protect(
+    r: &GitRunner,
+    o: &RunOptions,
+    message: &str,
+) -> Result<(Option<String>, Option<RemoteError>), RemoteError> {
+    let before = stash_id(r, o).await?;
+    let saved = cmd(r, o, "stash", &["push", "-m", message]).await;
+    let mut recovery = o.clone();
+    recovery.cancellation = crate::git::CancellationToken::new();
+    let stash = stash_id(r, &recovery)
+        .await?
+        .filter(|id| Some(id) != before.as_ref());
+    if let Some(stash) = &stash {
+        super::update_recovery::save(r, &recovery, stash).await?;
+    }
+    if let Err(error) = saved {
+        if stash.is_some() {
+            return Ok((stash, Some(error.into())));
+        }
+        return Err(error.into());
+    }
+    Ok((stash, None))
+}
 /// Update leaves conflicts in place. The returned stash ID belongs to the caller's
 /// recovery state and can be supplied when aborting the merge/rebase.
 pub async fn update(
@@ -399,6 +435,9 @@ pub async fn update(
     let _gate = super::WRITES.lock().await;
     check(r, o, expected).await?;
     let repository = repo::Repository::open(r, o).await?;
+    if super::update_recovery::pending(&repository.git_dir)?.is_some() {
+        return Err(repo::invalid("remote.stashRecoveryRequired").into());
+    }
     if [
         "MERGE_HEAD",
         "rebase-merge",
@@ -437,21 +476,9 @@ pub async fn update(
         Some(strategy) => strategy,
         None => configured_update_strategy(r, o, &head).await?,
     };
-    let before = stash_id(r, o).await?;
-    let saved = cmd(r, o, "stash", &["push", "-m", "Gitwood Update Project"]).await;
-    let mut recovery = o.clone();
-    recovery.cancellation = crate::git::CancellationToken::new();
-    let stash = stash_id(r, &recovery)
-        .await?
-        .filter(|id| Some(id) != before.as_ref());
-    if let Err(error) = saved {
-        if stash.is_some() {
-            return Ok(RemoteOutcome::Interrupted {
-                stash,
-                error: error.into(),
-            });
-        }
-        return Err(error.into());
+    let (stash, interrupted) = protect(r, o, "Gitwood Update Project").await?;
+    if let Some(error) = interrupted {
+        return Ok(RemoteOutcome::Interrupted { stash, error });
     }
     let result = if strategy == UpdateStrategy::Rebase {
         cmd(r, &options, "rebase", &[&upstream]).await
@@ -502,6 +529,9 @@ pub async fn abort_update(
 ) -> Result<RemoteOutcome, RemoteError> {
     let _gate = super::WRITES.lock().await;
     check(r, o, expected).await?;
+    let repository = repo::Repository::open(r, o).await?;
+    let pending = super::update_recovery::pending(&repository.git_dir)?;
+    let stash = stash.or(pending.as_deref());
     if let Some(stash) = stash {
         if super::branch::stash_position(r, o, stash).await?.is_none() {
             return Err(repo::invalid("remote.stashChanged").into());
@@ -528,4 +558,61 @@ pub async fn abort_update(
         return restore(r, o, stash).await;
     }
     Ok(RemoteOutcome::Completed)
+}
+
+/// Complete a paused Update, then restore only the stash created by that Update.
+/// A conflict during stash apply retains it; it must never be applied a second time.
+pub async fn continue_update(
+    r: &GitRunner,
+    o: &RunOptions,
+    expected: &str,
+    stash: Option<&str>,
+    action: super::sequence::SequenceAction,
+    message: Option<&str>,
+) -> Result<RemoteOutcome, RemoteError> {
+    let _gate = super::WRITES.lock().await;
+    check(r, o, expected).await?;
+    let repository = repo::Repository::open(r, o).await?;
+    let pending = super::update_recovery::pending(&repository.git_dir)?;
+    let stash = stash.or(pending.as_deref());
+    if let Some(stash) = stash {
+        if super::branch::stash_position(r, o, stash).await?.is_none() {
+            return Err(repo::invalid("remote.stashChanged").into());
+        }
+    }
+    if action == super::sequence::SequenceAction::Continue
+        && repo::operation::read(&repository.git_dir)
+            .map_err(GitError::from)?
+            .is_none()
+    {
+        if !repo::status::read(r, o).await?.conflicts.is_empty() {
+            return Err(repo::invalid("sequence.unresolved").into());
+        }
+        if let Some(stash) = stash {
+            return restore(r, o, stash).await;
+        }
+    }
+    match super::sequence::run_locked(r, o, action, message).await? {
+        super::sequence::SequenceOutcome::Conflicts { files, .. } => Ok(RemoteOutcome::Conflicts {
+            files,
+            stash: stash.map(Into::into),
+        }),
+        super::sequence::SequenceOutcome::Stopped { detail, .. } => {
+            Ok(RemoteOutcome::Interrupted {
+                stash: stash.map(Into::into),
+                error: RemoteError {
+                    key: "remote.interrupted".into(),
+                    detail,
+                    guidance: "sequence.inspectOutput",
+                },
+            })
+        }
+        super::sequence::SequenceOutcome::Completed => {
+            if let Some(stash) = stash {
+                restore(r, o, stash).await
+            } else {
+                Ok(RemoteOutcome::Completed)
+            }
+        }
+    }
 }

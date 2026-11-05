@@ -1,9 +1,15 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+mod integrate;
+use integrate::*;
+mod conflicts;
 mod credential;
 mod native_menu;
 mod native_window;
+mod operations;
 mod project_windows;
 mod repository;
+use conflicts::*;
+use operations::*;
 mod settings;
 use project_windows::{initial_repository, open_project, ProjectWindows, WindowSession};
 use repository::*;
@@ -292,6 +298,9 @@ fn main() {
             undo_commit,
             operation_state,
             sequence,
+            conflict_content,
+            resolve_conflict,
+            continue_update,
             rollback_hunk,
             rollback_files,
             create_branch,
@@ -299,6 +308,11 @@ fn main() {
             checkout_remote_branch,
             rename_branch,
             delete_branch,
+            integrate,
+            comparison_open,
+            comparison_files,
+            comparison_commits,
+            comparison_diff,
             set_upstream,
             fetch,
             update_project,

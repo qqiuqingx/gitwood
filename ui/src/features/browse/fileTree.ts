@@ -1,3 +1,4 @@
+import { conflictText } from '../../i18n/conflict';
 import { browseText as t } from '../../i18n/browse';
 
 export function filePathParts(path: string) {
@@ -7,11 +8,11 @@ export function filePathParts(path: string) {
 export function fileCount(count: number) {
   return count === 1 ? t('oneFile') : t('fileCount').replace('{count}', String(count));
 }
-export function fileGroup(id: string): id is 'files' | 'changes' | 'unversioned' {
-  return id === 'files' || id === 'changes' || id === 'unversioned';
+export function fileGroup(id: string): id is 'files' | 'changes' | 'unversioned' | 'conflicts' {
+  return id === 'conflicts' || id === 'files' || id === 'changes' || id === 'unversioned';
 }
 export function fileRowLabel(row: { id: string; label: string; count: number; path: { display: string } | null }, flat: boolean) {
-  if (fileGroup(row.id)) return `${t(row.id)} ${fileCount(row.count)}`;
+  if (fileGroup(row.id)) return `${row.id === 'conflicts' ? conflictText('title') : t(row.id)} ${fileCount(row.count)}`;
   if (!row.path || !flat) return row.label;
   const { name, directory } = filePathParts(row.path.display);
   return directory ? `${name} ${directory}` : name;

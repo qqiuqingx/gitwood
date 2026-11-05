@@ -104,11 +104,7 @@ impl FileTree {
     }
     pub fn changes(status: &status::Status, flat: bool) -> Self {
         let mut files: BTreeMap<Vec<u8>, FileNode> = BTreeMap::new();
-        for (entries, side) in [
-            (&status.staged, 0),
-            (&status.unstaged, 1),
-            (&status.conflicts, 2),
-        ] {
+        for (entries, side) in [(&status.staged, 0), (&status.unstaged, 1)] {
             for entry in entries {
                 let file = files.entry(entry.path.bytes.clone()).or_insert_with(|| {
                     FileNode::file(
@@ -127,6 +123,21 @@ impl FileTree {
         }
         let mut tree = Self::default();
         tree.group("changes", files.into_values().collect(), flat);
+        if !status.conflicts.is_empty() {
+            tree.group(
+                "conflicts",
+                status
+                    .conflicts
+                    .iter()
+                    .map(|e| {
+                        let mut file = FileNode::file("conflict", &e.path, e.xy.clone(), None);
+                        file.conflicted = true;
+                        file
+                    })
+                    .collect(),
+                flat,
+            );
+        }
         tree.group(
             "unversioned",
             status

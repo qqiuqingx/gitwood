@@ -141,7 +141,7 @@ impl Lease {
         self.preview(left, right, parent.map_or("Empty", String::as_str), hash)
             .await
     }
-    async fn preview(
+    pub(super) async fn preview(
         &self,
         left: Option<ContentSource<'_>>,
         right: Option<ContentSource<'_>>,

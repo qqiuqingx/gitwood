@@ -15,6 +15,12 @@ export function createActionRegistry() {
       actions.set(id, action);
       return () => { if (actions.get(id) === action) actions.delete(id); };
     },
+    run(id: string): boolean {
+      const action = actions.get(id);
+      if (!action || action.enabled?.() === false) return false;
+      action.run();
+      return true;
+    },
     dispatch(event: DispatchEvent, bindings: readonly Binding[], editing = false): boolean {
       if (event.defaultPrevented || event.isComposing) return false;
       for (const binding of bindings) {

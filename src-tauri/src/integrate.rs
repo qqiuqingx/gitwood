@@ -1,0 +1,99 @@
+use crate::project_windows::WindowSession;
+use gitwood_core::{
+    ops::{
+        integrate::Integration,
+        remote::{RemoteError, RemoteOutcome},
+    },
+    repo::{comparison::Summary, file_tree::FileTreePage, preview::Preview, RepoPath},
+};
+use tauri::AppHandle;
+#[tauri::command]
+pub async fn integrate(
+    app: AppHandle,
+    sessions: WindowSession,
+    generation: u64,
+    expected: String,
+    request: Integration,
+) -> Result<RemoteOutcome, RemoteError> {
+    let lease = sessions.lease(generation)?;
+    let askpass = if matches!(&request, Integration::Pull { .. }) {
+        sessions
+            .state
+            .credentials
+            .start(&app, &sessions, generation)
+    } else {
+        None
+    };
+    let (progress, mut events) = gitwood_core::git::progress_channel::<String>();
+    let event_app = app.clone();
+    let event_sessions = sessions.clone();
+    tauri::async_runtime::spawn(async move {
+        while let Some(message) = events.recv().await {
+            let _ = event_sessions.emit(&event_app, "remote_progress", (generation, message));
+        }
+    });
+    let result = tauri::async_runtime::spawn_blocking(move || {
+        tauri::async_runtime::block_on(lease.integrate(&request, &expected, progress, askpass))
+    })
+    .await
+    .map_err(|e| gitwood_core::repo::invalid(&e.to_string()))?;
+    let _ = sessions.emit(
+        &app,
+        "repository-refresh",
+        (generation, gitwood_core::repo::watch::Refresh::all()),
+    );
+    result
+}
+#[tauri::command]
+pub async fn comparison_open(
+    sessions: WindowSession,
+    generation: u64,
+    left: String,
+    working: bool,
+) -> Result<Summary, RemoteError> {
+    let lease = sessions.lease(generation)?;
+    let result = lease.comparison_open(&left, working).await;
+    sessions.check(&lease)?;
+    Ok(result?)
+}
+#[tauri::command]
+pub async fn comparison_files(
+    sessions: WindowSession,
+    generation: u64,
+    id: String,
+    expanded: Vec<String>,
+    start: usize,
+    end: usize,
+) -> Result<FileTreePage, RemoteError> {
+    let lease = sessions.lease(generation)?;
+    let result = lease
+        .comparison_files(&id, &expanded.into_iter().collect(), start, end)
+        .await;
+    sessions.check(&lease)?;
+    Ok(result?)
+}
+#[tauri::command]
+pub async fn comparison_commits(
+    sessions: WindowSession,
+    generation: u64,
+    id: String,
+    start: usize,
+    end: usize,
+) -> Result<gitwood_core::repo::comparison::CommitPage, RemoteError> {
+    let lease = sessions.lease(generation)?;
+    let result = lease.comparison_commits(&id, start, end).await;
+    sessions.check(&lease)?;
+    Ok(result?)
+}
+#[tauri::command]
+pub async fn comparison_diff(
+    sessions: WindowSession,
+    generation: u64,
+    id: String,
+    path: RepoPath,
+) -> Result<Preview, RemoteError> {
+    let lease = sessions.lease(generation)?;
+    let result = lease.comparison_diff(&id, &path).await;
+    sessions.check(&lease)?;
+    Ok(result?)
+}

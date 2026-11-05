@@ -74,7 +74,16 @@ pub async fn snapshot(runner: &GitRunner, options: &RunOptions) -> Result<Snapsh
     if index.last() == Some(&b'\n') {
         index.pop();
     }
-    hash_optional(&std::path::PathBuf::from(os(index)), &mut all)?;
+    let index_path = std::path::PathBuf::from(os(index));
+    hash_optional(&index_path, &mut all)?;
+    if let Some(git_dir) = index_path.parent() {
+        serde_json::to_vec(&crate::repo::operation::read(git_dir)?)
+            .map_err(|e| crate::repo::invalid(&e.to_string()))?
+            .hash(&mut all);
+        for name in ["MERGE_HEAD", "CHERRY_PICK_HEAD", "REVERT_HEAD", "MERGE_MSG"] {
+            hash_optional(&git_dir.join(name), &mut all)?;
+        }
+    }
     Ok(Snapshot {
         fingerprint: format!("{:016x}", all.finish()),
         worktree,
@@ -106,6 +115,9 @@ fn hash_path(root: &Path, path: &Path, hash: &mut DefaultHasher) -> Result<(), G
                 std::fs::read_link(path)?.hash(hash);
             } else if metadata.is_file() {
                 hash_optional(path, hash)?;
+            } else if metadata.is_dir() {
+                // Gitlinks are directories; never recurse into another repository.
+                2u8.hash(hash);
             } else {
                 return Err(crate::repo::invalid(
                     "write selection contains non-regular file",

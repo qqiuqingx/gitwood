@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { requestResolution } from './features/conflicts/model';
+  import { conflictText } from './i18n/conflict';
   import { onMount, untrack } from 'svelte';
   import { invoke, isTauri } from '@tauri-apps/api/core';
   import { listen } from '@tauri-apps/api/event';
@@ -157,6 +159,7 @@
         else if (payload === 'update-project') workflow?.update();
         else if (payload === 'commit-project') document.querySelector<HTMLElement>('.commit-panel textarea')?.focus();
         else if (payload === 'push-project') workflow?.push();
+        else workflow?.runAction(payload);
       });
       if (disposed) { menu(); return; } unlisteners.push(menu);
       const credential = await listenWindowEvent<CredentialRequest>('credential_request', ({ payload }) => {
@@ -212,7 +215,7 @@
         {/snippet}
       </Splitter></div>
     </div>
-    <footer><span>{browser.project.root}</span>{#if browser.status?.operation}<span class="operation" role="status">{operationLabel(browser.status.operation, browser.status.branch.head)}{#if browser.status.conflicts} · {operationText('conflicts', { count: browser.status.conflicts })}{/if}</span>{/if}{#if browser.status}<span>{browser.status.changes} {b('changes')} · {browser.status.untracked} {b('unversioned')}</span>{/if}{#if browser.commit.busy}<span role="status">{browser.commit.task}</span><progress aria-label={c('running')}></progress><button onclick={()=>void invoke('cancel_write',{generation:browser.generation}).catch(error=>browser.report(error))}>{c('cancel')}</button>{/if}{#if browser.loading}<span>{b('loading')}</span>{/if}</footer>
+    <footer><span>{browser.project.root}</span>{#if browser.status?.conflicts || browser.status?.update_stash}<button onclick={requestResolution}>{conflictText('resolve')}</button>{/if}{#if browser.status?.operation}<span class="operation" role="status">{operationLabel(browser.status.operation, browser.status.branch.head)}{#if browser.status.conflicts} · {operationText('conflicts', { count: browser.status.conflicts })}{/if}</span>{/if}{#if browser.status}<span>{browser.status.changes} {b('changes')} · {browser.status.untracked} {b('unversioned')}</span>{/if}{#if browser.commit.busy}<span role="status">{browser.commit.task}</span><progress aria-label={c('running')}></progress><button onclick={()=>void invoke('cancel_write',{generation:browser.generation}).catch(error=>browser.report(error))}>{c('cancel')}</button>{/if}{#if browser.loading}<span>{b('loading')}</span>{/if}</footer>
   {:else}
     <section class="welcome"><h1>{b('welcome')}</h1><p>{browser.opening ? b('opening') : b('chooseRepository')}</p>
       <button onclick={chooseRepository} disabled={browser.opening}>{b('open')}</button>

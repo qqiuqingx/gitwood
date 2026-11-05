@@ -20,9 +20,17 @@ pub struct References {
 }
 pub async fn read(r: &GitRunner, o: &RunOptions) -> Result<References, GitError> {
     let bytes=r.run(ReadCommand::new(ReadOperation::ForEachRef).args(["--format=%(refname)%00%(objectname)%00%(*objectname)%00%(upstream)%00%(upstream:track,nobracket)%00%(symref)%00","refs/heads","refs/remotes","refs/tags"]),o).await?.stdout;
+    let names = r
+        .run(ReadCommand::new(ReadOperation::RemoteNames), o)
+        .await?
+        .stdout;
+    let remotes = text(&names)
+        .lines()
+        .map(|name| (name.to_owned(), vec![]))
+        .collect();
     let mut result = References {
         local: vec![],
-        remotes: BTreeMap::new(),
+        remotes,
         tags: vec![],
         remote_heads: BTreeMap::new(),
         head: status::read(r, o).await?.branch,
@@ -48,11 +56,14 @@ pub async fn read(r: &GitRunner, o: &RunOptions) -> Result<References, GitError>
         if name.starts_with("refs/heads/") {
             result.local.push(reference);
         } else if let Some(remote) = name.strip_prefix("refs/remotes/") {
-            result
+            let owner = result
                 .remotes
-                .entry(remote.split('/').next().unwrap_or_default().into())
-                .or_default()
-                .push(reference);
+                .keys()
+                .filter(|name| remote.starts_with(&format!("{name}/")))
+                .max_by_key(|name| name.len())
+                .cloned()
+                .unwrap_or_else(|| remote.split('/').next().unwrap_or_default().into());
+            result.remotes.entry(owner).or_default().push(reference);
         } else {
             result.tags.push(reference);
         }

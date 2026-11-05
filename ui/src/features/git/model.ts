@@ -1,6 +1,7 @@
 import type { PopupItem } from '../../components/popup';
 import type { Reference, References } from '../browse/types';
 import { gitText } from '../../i18n/git';
+import { integrationText as t } from '../../i18n/integration';
 
 export type CheckoutMode = 'normal' | 'smart' | 'force';
 export type UpdateStrategy = 'merge' | 'rebase';
@@ -11,7 +12,7 @@ export type RemoteOutcome =
   | { kind: 'completed' }
   | { kind: 'push'; success: boolean; refs: PushRef[] }
   | { kind: 'conflicts'; files: { display: string }[]; stash?: string | null }
-  | { kind: 'stashRecovery'; stash: string; files: { display: string }[] }
+  | { kind: 'stashRecovery'; detail?: string; stash: string; files: { display: string }[] }
   | { kind: 'interrupted'; stash?: string | null; error: RemoteError };
 export interface RemoteError { key?: string; detail?: string; guidance?: string }
 export type CommitPushResult =
@@ -36,22 +37,27 @@ export function branchItem(ref: Reference, refs: References, handlers: BranchPop
   const name = ref.name.startsWith('refs/heads/') ? localName(ref.name) : remoteName(ref.name);
   const local = ref.name.startsWith('refs/heads/');
   const current = ref.name === currentName(refs);
+  const branch = local || ref.name.startsWith('refs/remotes/');
+  const canIntegrate = branch && !current && handlers.canIntegrate();
   const checkout = local ? () => handlers.checkout(name) : () => {
     const [remote, ...parts] = name.split('/'); handlers.checkoutRemote(remote, parts.join('/'));
   };
   const children: PopupItem[] = [
     { id: `${ref.name}:checkout`, label: gitText(current ? 'checkoutCurrent' : 'checkout'), disabled: current, run: checkout },
     { id: `${ref.name}:new`, label: gitText('newFrom').replace('{name}', name), run: () => handlers.newFrom(name) },
-    { id: `${ref.name}:checkout-rebase`, label: gitText('checkoutRebase'), disabled: true },
-    { id: `${ref.name}:compare`, label: gitText('compare'), disabled: true },
-    { id: `${ref.name}:diff`, label: gitText('diff'), disabled: true },
+    { id: `${ref.name}:checkout-rebase`, label: t('checkoutRebase'), disabled: !canIntegrate, run: () => handlers.checkoutRebase(ref.name) },
+    { id: `${ref.name}:compare`, label: t('compare'), disabled: !branch || current, run: () => handlers.compare(ref.name, false) },
+    { id: `${ref.name}:diff`, label: t('diff'), disabled: !branch, run: () => handlers.compare(ref.name, true) },
     { id: `${ref.name}:separator`, label: '', kind: 'separator' },
-    { id: `${ref.name}:rebase`, label: gitText('rebaseMerge'), disabled: true },
+    { id: `${ref.name}:merge`, label: t('mergeCurrent'), disabled: !canIntegrate, run: () => handlers.merge(ref.name) },
+    { id: `${ref.name}:rebase`, label: t('rebaseCurrent'), disabled: !canIntegrate, run: () => handlers.rebase(ref.name) },
     { id: `${ref.name}:update`, label: gitText('updateBranch'), disabled: !ref.upstream, run: () => handlers.update() },
     { id: `${ref.name}:push`, label: gitText('push'), run: () => handlers.push(local ? { remote: null, branch: name, forceWithLease: false, tags: false } : null) },
   ];
   if (local) {
     children.push(
+      { id: `${ref.name}:upstream`, label: t('setUpstream'), disabled: !handlers.canIntegrate(), run: () => handlers.upstream(name) },
+      { id: `${ref.name}:unset-upstream`, label: t('unsetUpstream'), disabled: !ref.upstream || !handlers.canIntegrate(), run: () => handlers.unsetUpstream(name) },
       { id: `${ref.name}:rename`, label: gitText('rename'), run: () => handlers.rename(name) },
       { id: `${ref.name}:delete`, label: gitText(current ? 'deleteCurrent' : 'delete'), disabled: current, run: () => handlers.delete(name, false) },
     );
@@ -88,6 +94,13 @@ function branchTree(entries: { ref: Reference; name: string }[], refs: Reference
 }
 
 export interface BranchPopupHandlers {
+  canIntegrate: () => boolean;
+  merge: (ref: string) => void;
+  rebase: (ref: string) => void;
+  checkoutRebase: (ref: string) => void;
+  compare: (ref: string, working: boolean) => void;
+  upstream: (name: string) => void;
+  unsetUpstream: (name: string) => void;
   checkout: (name: string) => void;
   checkoutRemote: (remote: string, branch: string) => void;
   newFrom: (name: string) => void;

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { branchPopupItems, trackCounts, commitPushFeedback, defaultPushOptions, defaultUpdateStrategy, isNewPushTarget, pushPageRanges, pushRejectionText, remoteErrorText, updateRequest } from '../src/features/git/model';
+import { integrationText as t } from '../src/i18n/integration';
 import type { References } from '../src/features/browse/types';
 
 const refs: References = {
@@ -14,15 +15,16 @@ const refs: References = {
 
 describe('Git workflow model', () => {
   it('groups recent, local, remote and tags and disables current checkout/delete and P1 actions', () => {
-    const items = branchPopupItems(refs, { checkout: () => {}, checkoutRemote: () => {}, newFrom: () => {}, update: () => {}, push: () => {}, rename: () => {}, delete: () => {}, newBranch: () => {}, commit: () => {}, fetch: () => {} });
+    const items = branchPopupItems(refs, { canIntegrate: () => true, merge: () => {}, rebase: () => {}, checkoutRebase: () => {}, compare: () => {}, upstream: () => {}, unsetUpstream: () => {}, checkout: () => {}, checkoutRemote: () => {}, newFrom: () => {}, update: () => {}, push: () => {}, rename: () => {}, delete: () => {}, newBranch: () => {}, commit: () => {}, fetch: () => {} });
     expect(items.map(item => item.id)).toContain('section:recent');
     const main = items.find(item => item.id === 'refs/heads/main')!;
     expect(main.children?.find(item => item.id.endsWith(':checkout'))?.disabled).toBe(true);
     expect(main.children?.find(item => item.id.endsWith(':delete'))?.disabled).toBe(true);
-    expect(main.children?.find(item => item.id.endsWith(':compare'))?.label).toContain('P1');
+    expect(main.children?.find(item => item.id.endsWith(':compare'))?.label).toBe(t('compare'));
+    expect(main.children?.find(item => item.id.endsWith(':merge'))?.disabled).toBe(true);
   });
   it('groups slash prefixes into IDEA folders that expand in place, current and favorites first', () => {
-    const handlers = { checkout: () => {}, checkoutRemote: () => {}, newFrom: () => {}, update: () => {}, push: () => {}, rename: () => {}, delete: () => {}, newBranch: () => {}, commit: () => {}, fetch: () => {} };
+    const handlers = { canIntegrate: () => true, merge: () => {}, rebase: () => {}, checkoutRebase: () => {}, compare: () => {}, upstream: () => {}, unsetUpstream: () => {}, checkout: () => {}, checkoutRemote: () => {}, newFrom: () => {}, update: () => {}, push: () => {}, rename: () => {}, delete: () => {}, newBranch: () => {}, commit: () => {}, fetch: () => {} };
     const ref = (name: string) => ({ name, hash: '1', peeled: null, upstream: null, track: '' });
     const tree: References = { ...refs, local: [ref('refs/heads/zeta'), ref('refs/heads/codex/a'), ref('refs/heads/codex/b'), ref('refs/heads/master'), ref('refs/heads/main')] };
     const toggled: string[] = [];

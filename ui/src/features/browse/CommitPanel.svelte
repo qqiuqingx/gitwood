@@ -1,4 +1,8 @@
 <script lang="ts">
+  import type { RemoteOutcome } from '../git/model';
+  import { conflictText } from '../../i18n/conflict';
+  import { notifications } from '../notifications/center.svelte';
+  import { requestResolution } from '../conflicts/model';
   import { createActionRegistry } from '../../keymap/registry';
   import { keymapFor } from '../../keymap/keymaps';
   import { detectPlatform } from '../../keymap/shortcuts';
@@ -18,6 +22,7 @@
   let selectedFile = $state<FileRow>();
   let optionsAnchor = $state<HTMLButtonElement | null>(null);
   function previewFile(row: FileRow) {
+    if (row.conflicted) return;
     if (row.path) browser.previewFile = { path: row.path, staged: row.staged, unstaged: row.unstaged, hash: '' };
   }
   function selectFile(row: FileRow) {
@@ -40,11 +45,18 @@
     } catch(error) {browser.report(error);} finally {session.busy=false;}
   }
   async function commit() {
-    if(!canCommit(session.message,session.count,session.amend,session.busy))return;
+    if (!ready) return;
     try {
-      await session.submit(browser.generation,browser.status?.fingerprint ?? '');
+      if (browser.status?.update_stash && browser.status.operation) {
+        session.busy = true;
+        const value = await invoke<RemoteOutcome>('continue_update', { generation: browser.generation, expected: browser.status.fingerprint, stash: browser.status.update_stash, action: 'continue', message: session.message });
+        if (value.kind === 'completed' || value.kind === 'stashRecovery') session.message = '';
+        else requestResolution();
+        const detail = value.kind === 'stashRecovery' ? `${value.stash}\n${value.detail ?? ''}` : value.kind === 'interrupted' ? value.error.detail : '';
+        notifications.notify({ kind: value.kind === 'completed' ? 'success' : 'warning', title: value.kind === 'completed' ? conflictText('updateCompleted') : conflictText('title'), detail, group: 'git' });
+      } else await session.submit(browser.generation,browser.status?.fingerprint ?? '');
     } catch(error) {browser.report(error);}
-    finally {await browser.refresh({status:true,refs:true,history:true}); messageBox?.focus();}
+    finally {session.busy = false; await browser.refresh({status:true,refs:true,history:true}); messageBox?.focus();}
   }
   async function showHistory() {
     if(session.busy)return;
@@ -54,15 +66,26 @@
   }
   const actions=createActionRegistry();
   actions.register('Vcs.ShowMessageHistory',{run:()=>void showHistory(),enabled:()=>!session.busy,allowInInput:true});
-  actions.register('Vcs.ToggleAmendCommitMode',{run:()=>void amend(),enabled:()=>!session.busy && browser.status?.branch.oid !== '(initial)',allowInInput:true});
+  actions.register('Vcs.ToggleAmendCommitMode',{run:()=>void amend(),enabled:()=>!session.busy && !browser.status?.operation && browser.status?.branch.oid !== '(initial)',allowInInput:true});
   actions.register('ChangesView.Revert',{run:()=>{rollback=true;},enabled:()=>!!ids.length && !session.busy});
   function keyboard(event: KeyboardEvent) {
     if(event.key==='Escape' && history){event.preventDefault();history=false;messageBox.focus();return;}
     actions.dispatch(event,keymapFor(detectPlatform(navigator.platform)),event.target instanceof HTMLElement && !!event.target.closest('input,textarea,select'));
   }
-  async function openDiff() {if(selectedFile)previewFile(selectedFile);await tick(); document.querySelector<HTMLElement>('.diff-view .cm-content')?.focus();}
+  async function openDiff() {if(selectedFile?.conflicted) { requestResolution(); return; } if(selectedFile)previewFile(selectedFile);await tick(); document.querySelector<HTMLElement>('.diff-view .cm-content')?.focus();}
 
-  let expanded = $state<ReadonlySet<string>>(new Set(['changes', 'unversioned']));
+  const ready = $derived(canCommit(session.message,session.count + (browser.status?.operation?.kind === 'merge' ? 1 : 0),session.amend,session.busy || !!browser.status?.conflicts || ['rebase','applyMailbox'].includes(browser.status?.operation?.kind ?? '')));
+  let messageOperation = '';
+  $effect(() => {
+    const status = browser.status;
+    const key = status?.operation ? `${status.operation.kind}:${status.branch.oid}` : '';
+    if (key && key !== messageOperation && status?.merge_message && !session.message) {
+      session.message = status.merge_message;
+      session.selection = { rules: [{ id: 'changes', included: true }], hunks: [] };
+    }
+    messageOperation = key;
+  });
+  let expanded = $state<ReadonlySet<string>>(new Set(['conflicts', 'changes', 'unversioned']));
 </script>
 <Tabs label={t('commit')} activeId="commit" tabs={[{ id: 'commit', label: t('commit') }, { id: 'shelf', label: t('shelf'), disabled: true }]} onchange={() => {}}>
   {#snippet panel()}
@@ -87,11 +110,11 @@
       ]} /></div>{/if}
       <div class="files"><PagedFileTree selection={session.selection} oncount={count=>{session.count=count;}} onselectedids={selected=>{ids=selected;}} onopen={openDiff} ontoggle={(id,state)=>{if(!session.busy)session.selection=toggleRule(session.selection,id,state);}} onselect={selectFile} changes generation={browser.statusGeneration} revision={browser.statusRevision} {flat} bind:expanded onerror={error => browser.report(error)} /></div>
       <div class="form">
-        <label><input type="checkbox" checked={session.amend} disabled={session.busy || browser.status?.branch.oid === '(initial)'} onchange={event=>{const box=event.currentTarget;void amend().finally(()=>{box.checked=session.amend;});}} /> {t('amend')}</label>
+        <label><input type="checkbox" checked={session.amend} disabled={session.busy || (!!browser.status?.operation || browser.status?.branch.oid === '(initial)')} onchange={event=>{const box=event.currentTarget;void amend().finally(()=>{box.checked=session.amend;});}} /> {t('amend')}</label>
         <button title="Ctrl+M" disabled={session.busy} onclick={()=>{void showHistory();}}>{c('history')}</button>
         {#if history}<select bind:this={historySelect} aria-label={c('history')} size={Math.max(2,Math.min(6,session.history.length))} onchange={event=>{session.message=event.currentTarget.value;history=false;messageBox.focus();}}><option disabled selected>{c('history')}</option>{#each session.history as message}<option value={message}>{message}</option>{/each}</select>{/if}
         <textarea bind:this={messageBox} aria-label={t('commitMessage')} placeholder={t('commitMessage')} bind:value={session.message} disabled={session.busy}></textarea>
-        <div><button disabled={!canCommit(session.message,session.count,session.amend,session.busy)} onclick={commit}>{t('commit')}</button><button disabled={!canCommit(session.message,session.count,session.amend,session.busy)} onclick={commitPush} title={c('commitPush')}>{t('commitPush')}</button></div>
+        <div><button disabled={!ready} onclick={commit}>{t('commit')}</button><button disabled={!ready} onclick={commitPush} title={c('commitPush')}>{t('commitPush')}</button></div>
         {#if session.busy}<div role="status">{session.task}<progress aria-label={c('running')}></progress><button onclick={()=>void invoke('cancel_write',{generation:browser.generation}).catch(error=>browser.report(error))}>{c('cancel')}</button></div>{/if}
         {#if session.result?.kind === 'committed'}<p role="status">{c('committed')} {session.result.hash}</p>{/if}
         {#if session.result?.kind === 'recovery'}<div role="alert"><strong>{c('recovery')}</strong><p>{session.result.directory}</p><pre>{session.result.instructions}</pre></div>{/if}

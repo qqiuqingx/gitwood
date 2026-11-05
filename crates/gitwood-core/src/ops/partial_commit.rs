@@ -116,6 +116,7 @@ impl PreparedCommit {
         {
             return Err(CommitError::ConcurrentChange);
         }
+        let ongoing = operation_commit(context, selection, amend).await?;
         let tx = IndexTransaction::acquire(context.git_path("index").await?)?;
         let old_head = context.head().await?;
         if amend && old_head.is_none() {
@@ -125,6 +126,9 @@ impl PreparedCommit {
         }
         let index = tx.path("selected");
         let base = seed(context, &index, old_head.as_deref(), amend).await?;
+        if ongoing {
+            tx.copy_original(&index)?;
+        }
         select(context, &index, selection).await?;
         let tree = as_text(&context.write("write-tree", &[], &index, &[]).await?)?;
         align(
@@ -331,4 +335,47 @@ async fn ensure_current(
         return Err(CommitError::ConcurrentChange);
     }
     Ok(())
+}
+
+/// During a merge the index contains already merged changes from both parents. They
+/// must all participate, even when the UI only selected the formerly conflicted file.
+async fn operation_commit(
+    context: &Context<'_>,
+    selection: &CommitSelection,
+    amend: bool,
+) -> Result<bool, CommitError> {
+    let status = crate::repo::status::read(context.runner, &context.options).await?;
+    if !status.conflicts.is_empty() {
+        return Err(CommitError::InvalidSelection(
+            "resolve all conflicts first".into(),
+        ));
+    }
+    let operation = crate::repo::operation::read(&context.git_dir().await?)?;
+    let Some(operation) = operation.filter(|op| op.blocks_history_edit()) else {
+        return Ok(false);
+    };
+    if amend
+        || !matches!(
+            operation.kind,
+            crate::repo::operation::OperationKind::Merge
+                | crate::repo::operation::OperationKind::CherryPick
+                | crate::repo::operation::OperationKind::Revert
+        )
+    {
+        return Err(CommitError::InvalidSelection(
+            "use Continue for the current operation".into(),
+        ));
+    }
+    if !selection.patches.is_empty()
+        || status.staged.iter().any(|e| {
+            !selection
+                .files
+                .contains(&PathBuf::from(crate::repo::os(e.path.bytes.clone())))
+        })
+    {
+        return Err(CommitError::InvalidSelection(
+            "select all staged files to complete the operation".into(),
+        ));
+    }
+    Ok(true)
 }

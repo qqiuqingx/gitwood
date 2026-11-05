@@ -80,3 +80,8 @@ pub mod preview;
 
 pub mod inclusion;
 pub mod write;
+
+mod conflicts;
+
+pub mod comparison;
+mod integrate;

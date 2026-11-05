@@ -7,7 +7,7 @@ const reference = (name: string, hash = commit.hash) => ({ name, hash, peeled: n
 const refs: References = { local: [reference('refs/heads/main'), reference('refs/heads/topic'), reference('refs/heads/other', 'other')],
   remotes: { origin: [reference('refs/remotes/origin/topic')] }, tags: [reference('refs/tags/tag')], remote_heads: {},
   head: { oid: commit.hash, head: 'main', upstream: null, ahead: 0, behind: 0 } };
-const handlers: BranchPopupHandlers = { checkout: vi.fn(), checkoutRemote: vi.fn(), newFrom: vi.fn(), update: vi.fn(), push: vi.fn(), rename: vi.fn(), delete: vi.fn(), newBranch: vi.fn(), commit: vi.fn(), fetch: vi.fn() };
+const handlers: BranchPopupHandlers = { canIntegrate: () => true, merge: vi.fn(), rebase: vi.fn(), checkoutRebase: vi.fn(), compare: vi.fn(), upstream: vi.fn(), unsetUpstream: vi.fn(), checkout: vi.fn(), checkoutRemote: vi.fn(), newFrom: vi.fn(), update: vi.fn(), push: vi.fn(), rename: vi.fn(), delete: vi.fn(), newBranch: vi.fn(), commit: vi.fn(), fetch: vi.fn() };
 const actions = { copy: vi.fn(), parent: vi.fn() };
 const build = (parent = true, references: References | null = refs, branches: BranchPopupHandlers | undefined = handlers, selected = commit) => historyMenuItems(selected, references, branches, parent, actions, key => key);
 it('uses the IDEA merged menu order and leaves planned operations disabled', () => {

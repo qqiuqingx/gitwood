@@ -51,6 +51,11 @@
     "allow-checkout-remote-branch",
     "allow-rename-branch",
     "allow-delete-branch",
+    "allow-integrate",
+    "allow-comparison-open",
+    "allow-comparison-files",
+    "allow-comparison-commits",
+    "allow-comparison-diff",
     "allow-set-upstream",
     "allow-fetch",
     "allow-update-project",
@@ -58,6 +63,10 @@
     "allow-push",
     "allow-push-preview",
     "allow-commit-and-push",
-    "allow-answer-credential"
+    "allow-answer-credential",
+    "allow-conflict-content",
+    "allow-resolve-conflict",
+    "allow-continue-update",
+    "allow-default-update-strategy"
   ]
 }

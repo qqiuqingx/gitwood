@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { conflictText } from '../../i18n/conflict';
   import CheckBox from '../../components/CheckBox.svelte';
   import Highlight from '../../components/Highlight.svelte';
   import { browseText as t } from '../../i18n/browse';
@@ -19,14 +20,14 @@
   const details = $derived([file.path?.display ?? file.label, file.note,
     file.staged ? t('staged') : '', file.unstaged ? t('unstaged') : '', file.conflicted ? t('conflicted') : ''].filter(Boolean).join(' · '));
 </script>
-{#if changes && ontoggle}<CheckBox {state} label={file.label} disabled={file.conflicted || file.id.startsWith('loading:')} onchange={ontoggle} />{/if}
+{#if changes && ontoggle}<CheckBox {state} label={file.label} disabled={file.conflicted || file.id === 'conflicts' || file.id.startsWith('conflicts/') || file.id.startsWith('loading:')} onchange={ontoggle} />{/if}
 {#snippet image(name: string)}<img class="file-icon" src={ideaIcon(name, appearance.dark)} alt="" width="16" height="16" />{/snippet}
 {#if group && file.id === 'files' && root}
   {@render image('module')}
   <span class="name"><Highlight text={root} {query} /></span>
   <span class="note"><Highlight text={fileCount(file.count)} {query} /></span>
 {:else if group}
-  <strong><Highlight text={t(file.id as 'files' | 'changes' | 'unversioned')} {query} /></strong>
+  <strong><Highlight text={file.id === 'conflicts' ? conflictText('title') : t(file.id as 'files' | 'changes' | 'unversioned')} {query} /></strong>
   <span class="note"><Highlight text={fileCount(file.count)} {query} /></span>
 {:else}
   {#if file.path}{@render image(icon)}

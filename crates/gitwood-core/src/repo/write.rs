@@ -34,7 +34,7 @@ impl Drop for WriteGuard<'_> {
     }
 }
 impl Writes {
-    fn start(&self, options: &RunOptions) -> Result<WriteGuard<'_>, CommitError> {
+    pub(super) fn start(&self, options: &RunOptions) -> Result<WriteGuard<'_>, CommitError> {
         let mut active = self.active.lock().unwrap();
         if active.is_some() {
             return Err(CommitError::InvalidSelection(
@@ -333,7 +333,15 @@ impl Lease {
                 }
             }
         }
-        if selected.files.is_empty() && selected.patches.iter().all(Vec::is_empty) && !amend {
+        let merging = self
+            .operation_state()
+            .await?
+            .is_some_and(|op| op.kind == super::operation::OperationKind::Merge);
+        if selected.files.is_empty()
+            && selected.patches.iter().all(Vec::is_empty)
+            && !amend
+            && !merging
+        {
             return Err(CommitError::InvalidSelection("no changes selected".into()));
         }
         match ops::partial_commit(

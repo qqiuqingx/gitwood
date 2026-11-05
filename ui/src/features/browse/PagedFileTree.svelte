@@ -13,7 +13,7 @@
   interface Page { total: number; files: number; start: number; rows: FileRow[]; positions: (number | null)[]; inclusion?: { states: Inclusion[]; count: number } }
   let { hash = '', generation, onerror, changes = false, revision = 0, flat = false, root = '',
     onselect, selection, ontoggle, oncount, onselectedids, onopen,
-    expanded = $bindable(new Set(['files', 'changes', 'unversioned']) as ReadonlySet<string>),
+    expanded = $bindable(new Set(['files', 'conflicts', 'changes', 'unversioned']) as ReadonlySet<string>),
   }: { selection?: Selection; ontoggle?: (id: string, state: Inclusion) => void; oncount?: (count: number) => void; onselectedids?: (ids: string[]) => void; onopen?: () => void; onselect?: (row: FileRow) => void; hash?: string; generation: number; onerror: (error: unknown) => void; changes?: boolean; revision?: number; flat?: boolean; root?: string; expanded?: ReadonlySet<string> } = $props();
   const target = $derived(changes ? (revision ? 'changes' : '') : hash);
   let selected = $state<ReadonlySet<string>>(new Set());

@@ -25,3 +25,11 @@ mod history_edit;
 pub use history_edit::operation_state;
 
 pub mod sequence;
+
+pub mod conflict;
+mod conflict_blobs;
+mod merge_text;
+
+pub(crate) mod update_recovery;
+
+pub mod integrate;

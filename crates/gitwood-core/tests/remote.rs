@@ -514,3 +514,94 @@ async fn update_external_stash_is_preserved() {
         .unwrap()
         .contains("external"));
 }
+
+#[tokio::test]
+async fn paused_update_continues_and_restores_its_stash_or_opens_stash_conflicts_once() {
+    use gitwood_core::{
+        ops::{
+            conflict::{self, Side},
+            sequence::SequenceAction,
+        },
+        repo::RepoPath,
+    };
+    for conflicting_stash in [false, true] {
+        let (a, b, _bare) = fixture().await;
+        remote::push(&a.runner, &a.options, &options(), &token(&a).await)
+            .await
+            .unwrap();
+        b.git("fetch", &["origin"]).await;
+        b.git("checkout", &["-b", "main", "--track", "origin/main"])
+            .await;
+        a.put("A", "ours\n");
+        a.git("commit", &["-am", "ours"]).await;
+        b.put("A", "incoming\n");
+        b.git("commit", &["-am", "incoming"]).await;
+        b.git("push", &[]).await;
+        a.put(if conflicting_stash { "A" } else { "B" }, "uncommitted\n");
+        let outcome = remote::update(
+            &a.runner,
+            &a.options,
+            &token(&a).await,
+            Some(UpdateStrategy::Merge),
+        )
+        .await
+        .unwrap();
+        let RemoteOutcome::Conflicts {
+            stash: Some(stash), ..
+        } = outcome
+        else {
+            panic!("expected paused update")
+        };
+        assert_eq!(
+            std::fs::read_to_string(a.path(".git/gitwood-update-stash")).unwrap(),
+            stash
+        );
+        conflict::resolve(
+            &a.runner,
+            &a.options,
+            &RepoPath::new(b"A"),
+            &token(&a).await,
+            Some(Side::Theirs),
+            None,
+        )
+        .await
+        .unwrap();
+        // No stash supplied: the worktree-local owner survives session / generation changes.
+        let result = remote::continue_update(
+            &a.runner,
+            &a.options,
+            &token(&a).await,
+            None,
+            SequenceAction::Continue,
+            None,
+        )
+        .await
+        .unwrap();
+        if conflicting_stash {
+            assert!(matches!(result, RemoteOutcome::StashRecovery { .. }));
+            assert!(!a.git("stash", &["list"]).await.is_empty());
+            conflict::resolve(
+                &a.runner,
+                &a.options,
+                &RepoPath::new(b"A"),
+                &token(&a).await,
+                Some(Side::Theirs),
+                None,
+            )
+            .await
+            .unwrap();
+            assert_eq!(
+                std::fs::read_to_string(a.path("A")).unwrap(),
+                "uncommitted\n"
+            );
+        } else {
+            assert!(matches!(result, RemoteOutcome::Completed));
+            assert_eq!(
+                std::fs::read_to_string(a.path("B")).unwrap(),
+                "uncommitted\n"
+            );
+            assert!(a.git("stash", &["list"]).await.is_empty());
+        }
+        assert!(!a.path(".git/gitwood-update-stash").exists());
+    }
+}
