@@ -22,7 +22,7 @@
   import { currentFileItems, type CurrentFileAction } from '../git/current-file-menu';
   import { currentFileText } from '../../i18n/current-file';
   import { browseText as t } from '../../i18n/browse';
-  let { browser, refresh, commitPush = () => {}, oncurrentfile = () => {}, flat = $bindable(true), preview = $bindable(true) }: { browser: RepositoryBrowser; refresh: () => void; commitPush?: () => void; oncurrentfile?: (action: CurrentFileAction, path: import('./types').RepoPath, revision?: string) => void; flat?: boolean; preview?: boolean } = $props();
+  let { browser, refresh, commitPush = () => {}, onfocuscommit = () => {}, oncurrentfile = () => {}, flat = $bindable(true), preview = $bindable(true) }: { browser: RepositoryBrowser; refresh: () => void; commitPush?: () => void; onfocuscommit?: () => void | Promise<void>; oncurrentfile?: (action: CurrentFileAction, path: import('./types').RepoPath, revision?: string) => void; flat?: boolean; preview?: boolean } = $props();
   let selectedFile = $state<FileRow>();
   let optionsAnchor = $state<HTMLButtonElement | null>(null);
   function previewFile(row: FileRow) {
@@ -32,6 +32,14 @@
   function selectFile(row: FileRow) {
     selectedFile = row;
     contextRow = row;
+    browser.currentFile = row.path ? {
+      path: row.path,
+      revision: 'HEAD',
+      source: 'changes',
+      versioned: row.status !== '?',
+      untracked: row.status === '?',
+      conflicted: row.conflicted,
+    } : null;
     if (preview) previewFile(row);
   }
   function togglePreview() {
@@ -71,13 +79,17 @@
     catch(error){browser.report(error);}
   }
   const actions=createActionRegistry();
+  const menuEnabled = (id: string) => browser.nativeMenuActions.actions[id] === true;
   export function runAction(id: string) { return actions.run(id); }
+  actions.register('CheckinProject', { run: () => { void Promise.resolve(onfocuscommit()).then(() => tick()).then(() => messageBox?.focus()).catch(error => browser.report(error)); }, enabled: () => browser.nativeMenuActions.actions.CheckinProject === true });
   actions.register('Vcs.ShowMessageHistory',{run:()=>void showHistory(),enabled:()=>!session.busy,allowInInput:true});
   actions.register('Vcs.ToggleAmendCommitMode',{run:()=>void amend(),enabled:()=>!session.busy && !browser.status?.operation && browser.status?.branch.oid !== '(initial)',allowInInput:true});
-  actions.register('ChangesView.Revert',{run:()=>{rollback=true;},enabled:()=>!!ids.length && !session.busy});
+  actions.register('ChangesView.Revert',{run:()=>{rollback=true;},enabled:()=>menuEnabled('ChangesView.Revert')});
   actions.register('Diff.ShowDiff', { run: () => { if (contextRow) { selectFile(contextRow); void openDiff(); } }, enabled: () => !!contextRow?.path && !session.busy });
-  actions.register('ChangesView.CommitFile', { run: () => { if (!contextRow?.path) return; session.selection = includeCommitFile(session.selection, contextRow.id, contextRow.path); void tick().then(() => messageBox?.focus()); }, enabled: () => !!contextRow?.path && !contextRow.conflicted && !session.busy });
-  actions.register('ChangesView.AddUnversioned', { run: () => { if (contextRow?.path && browser.status?.fingerprint) void invoke('changes_add', { generation: browser.generation, paths: [contextRow.path], expected: browser.status.fingerprint }).then(() => browser.refresh({ status:true, refs:false, history:false })).catch(error => browser.report(error)); }, enabled: () => !!contextRow?.path && contextRow.status === '?' && !session.busy });
+  actions.register('ChangesView.CommitFile', { run: () => { if (!contextRow?.path) return; session.selection = includeCommitFile(session.selection, contextRow.id, contextRow.path); void tick().then(() => messageBox?.focus()); }, enabled: () => menuEnabled('ChangesView.CommitFile') });
+  actions.register('CheckinFiles', { run: () => { actions.run('ChangesView.CommitFile'); }, enabled: () => menuEnabled('ChangesView.CommitFile') });
+  actions.register('Git.Add', { run: () => { actions.run('ChangesView.AddUnversioned'); }, enabled: () => menuEnabled('ChangesView.AddUnversioned') });
+  actions.register('ChangesView.AddUnversioned', { run: () => { if (contextRow?.path && browser.status?.fingerprint) void invoke('changes_add', { generation: browser.generation, paths: [contextRow.path], expected: browser.status.fingerprint }).then(() => browser.refresh({ status:true, refs:false, history:false })).catch(error => browser.report(error)); }, enabled: () => menuEnabled('ChangesView.AddUnversioned') });
   actions.register('ChangesView.Delete', { run: () => { if (contextRow?.path) deleteRow = contextRow; }, enabled: () => !!contextRow?.path && !session.busy });
   actions.register('ChangesView.Refresh', { run: () => refresh(), enabled: () => !session.busy });
   function keyboard(event: KeyboardEvent) {
@@ -87,22 +99,30 @@
   async function openDiff() {if(selectedFile?.conflicted) { requestResolution(); return; } if(selectedFile)previewFile(selectedFile);await tick(); document.querySelector<HTMLElement>('.diff-view .cm-content')?.focus();}
   function contextMenu(event: MouseEvent, row: FileRow) {
     if (!row.path) return;
-    event.preventDefault(); contextRow = row; selectedFile = row;
+    event.preventDefault(); selectFile(row);
     contextAnchor = { x: event.clientX, y: event.clientY, width: 0, height: 0 };
   }
   const contextActions = $derived.by((): PopupItem[] => {
     const row = contextRow;
     const canFile = !!row?.path && !row.conflicted;
-    const canAdd = canFile && row?.status === '?';
+    const canCommitFile = menuEnabled('ChangesView.CommitFile');
+    const canRollback = menuEnabled('ChangesView.Revert');
+    const canAdd = menuEnabled('ChangesView.AddUnversioned');
+    const currentFileAvailability = {
+      history: menuEnabled('Git.CurrentFile.ShowHistory'),
+      annotate: menuEnabled('Git.CurrentFile.Annotate'),
+      compareRevision: menuEnabled('Git.CurrentFile.CompareRevision'),
+      compareBranch: menuEnabled('Git.CurrentFile.CompareBranch'),
+    };
     const shortcut = detectPlatform(navigator.platform) === 'mac' ? { rollback: '⌥⌘Z', diff: '⌘D', add: '⌥⌘A' } : { rollback: 'Ctrl+Alt+Z', diff: 'Ctrl+D', add: 'Ctrl+Alt+A' };
-    const commit: PopupItem = { id:'context-commit', label:t('commitFile'), disabled:!canFile || session.busy, run:()=>actions.run('ChangesView.CommitFile') };
-    const revert: PopupItem = { id:'context-rollback', label:c('rollback'), shortcut:shortcut.rollback, disabled:!canFile || session.busy, run:()=>{ ids=[row!.id]; actions.run('ChangesView.Revert'); } };
-    const add: PopupItem = { id:'context-add', label:t('addToVcs'), shortcut:shortcut.add, disabled:!canAdd || session.busy, run:()=>actions.run('ChangesView.AddUnversioned') };
+    const commit: PopupItem = { id:'context-commit', label:t('commitFile'), disabled:!canCommitFile || !canFile, run:()=>actions.run('ChangesView.CommitFile') };
+    const revert: PopupItem = { id:'context-rollback', label:c('rollback'), shortcut:shortcut.rollback, disabled:!canRollback || !canFile, run:()=>{ ids=[row!.id]; actions.run('ChangesView.Revert'); } };
+    const add: PopupItem = { id:'context-add', label:t('addToVcs'), shortcut:shortcut.add, disabled:!canAdd, run:()=>actions.run('ChangesView.AddUnversioned') };
     return [commit, revert, { id:'context-diff', label:t('showDiffAction'), shortcut:shortcut.diff, disabled:!canFile || session.busy, run:()=>actions.run('Diff.ShowDiff') },
       { id:'context-delete', label:t('delete'), disabled:!canFile || session.busy, run:()=>actions.run('ChangesView.Delete') }, add,
       { id:'context-refresh', label:t('refresh'), disabled:session.busy, run:()=>actions.run('ChangesView.Refresh') },
       { id:'context-separator', label:'', kind:'separator' },
-      { id:'context-git', label:t('gitSubmenu'), children:[commit, revert, add, { id:'context-current-file', label:currentFileText('menu'), children:currentFileItems(action => { if (row?.path) oncurrentfile(action, row.path); }, undefined, canFile && row?.status !== '?') }] }];
+      { id:'context-git', label:t('gitSubmenu'), children:[commit, revert, add, { id:'context-current-file', label:currentFileText('menu'), children:currentFileItems(action => { if (row?.path) oncurrentfile(action, row.path); }, undefined, currentFileAvailability) }] }];
   });
 
   const ready = $derived(canCommit(session.message,session.count + (browser.status?.operation?.kind === 'merge' ? 1 : 0),session.amend,session.busy || !!browser.status?.conflicts || ['rebase','applyMailbox'].includes(browser.status?.operation?.kind ?? '')));
@@ -128,7 +148,7 @@
       {#snippet previewIcon()}<svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" aria-hidden="true"><path d="M1 8s2.5-5 7-5 7 5 7 5-2.5 5-7 5-7-5-7-5Z" /><circle cx="8" cy="8" r="2" /></svg>{/snippet}
       <Toolbar label={t('changes')} items={[
         { id: 'refresh', label: t('refresh'), icon: refreshIcon, run: refresh },
-        { id: 'rollback', label: c('rollback'), icon: rollbackIcon, disabled: !ids.length || session.busy, run: () => { rollback=true; } },
+        { id: 'rollback', label: c('rollback'), icon: rollbackIcon, disabled: !menuEnabled('ChangesView.Revert'), run: () => { rollback=true; } },
         { id: 'preview', label: t('showPreview'), icon: previewIcon, pressed: preview, run: togglePreview },
         { id: 'expand', label: t('expandAll'), icon: expandIcon, run: () => { expanded = new Set(['*']); } },
         { id: 'collapse', label: t('collapseAll'), icon: collapseIcon, run: () => { expanded = new Set(); } },
@@ -137,7 +157,7 @@
       {#if optionsAnchor}<div class="view-options"><Popup label={t('viewOptions')} anchor={optionsAnchor} onclose={() => { optionsAnchor = null; }} items={[
         { id: 'group', label: t('groupDirectories'), checked: !flat, run: () => { flat = !flat; } },
       ]} /></div>{/if}
-      <div class="files"><PagedFileTree selection={session.selection} oncount={count=>{session.count=count;}} onselectedids={selected=>{ids=selected;}} onopen={openDiff} ontoggle={(id,state)=>{if(!session.busy)session.selection=toggleRule(session.selection,id,state);}} onselect={selectFile} oncontextmenu={contextMenu} changes generation={browser.statusGeneration} revision={browser.statusRevision} {flat} bind:expanded onerror={error => browser.report(error)} /></div>
+      <div class="files"><PagedFileTree selection={session.selection} oncount={count=>{session.count=count;}} onselectedids={selected=>{ids=selected;browser.selectedChangeCount=selected.length;if(!selected.length && browser.currentFile?.source==='changes')browser.currentFile=null;}} onopen={openDiff} ontoggle={(id,state)=>{if(!session.busy)session.selection=toggleRule(session.selection,id,state);}} onselect={selectFile} oncontextmenu={contextMenu} changes generation={browser.statusGeneration} revision={browser.statusRevision} {flat} bind:expanded onerror={error => browser.report(error)} /></div>
       <div class="form">
         <label><input type="checkbox" checked={session.amend} disabled={session.busy || (!!browser.status?.operation || browser.status?.branch.oid === '(initial)')} onchange={event=>{const box=event.currentTarget;void amend().finally(()=>{box.checked=session.amend;});}} /> {t('amend')}</label>
         <button title="Ctrl+M" disabled={session.busy} onclick={()=>{void showHistory();}}>{c('history')}</button>

@@ -5,7 +5,9 @@ use integrate::*;
 use stash_changes::*;
 mod conflicts;
 mod credential;
+mod native_git_menu;
 mod native_menu;
+mod native_menu_state;
 mod native_window;
 mod operations;
 mod project_windows;
@@ -135,11 +137,8 @@ fn set_tool_window(
         }
     }
     store.update(|s| s.layout = sessions.state.layout.lock().unwrap().clone());
+    refresh_active_menu(&app);
     let settings = window_settings(&store, &sessions);
-    if let Some(menu) = app.menu() {
-        update_menu(menu.items().map_err(|error| error.to_string())?, &settings)
-            .map_err(|error| error.to_string())?;
-    }
     sessions
         .emit(&app, "preferences-changed", settings)
         .map_err(|error| error.to_string())
@@ -165,18 +164,20 @@ fn active_window(app: &AppHandle) -> Option<WebviewWindow> {
         })
 }
 
-fn refresh_active_menu(app: &AppHandle) {
+pub(crate) fn refresh_active_menu(app: &AppHandle) {
     if let Some(window) = active_window(app) {
         if let Ok(state) = app.state::<ProjectWindows>().get(window.label()) {
             let sessions = WindowSession {
                 label: window.label().into(),
-                state,
+                state: state.clone(),
             };
             if let Some(menu) = app.menu() {
+                let native = state.native_menu.lock().unwrap().presentation();
                 if let Err(error) = menu.items().and_then(|items| {
                     update_menu(
                         items,
                         &window_settings(&app.state::<SettingsStore>(), &sessions),
+                        &native,
                     )
                 }) {
                     eprintln!("Unable to update menu: {error}");
@@ -288,6 +289,7 @@ fn main() {
             app_version,
             get_theme,
             get_settings,
+            native_menu::update_native_menu_context,
             save_layout,
             save_history_preferences,
             set_tool_window,
@@ -367,19 +369,23 @@ fn main() {
             let store = app.state::<SettingsStore>();
             let id = event.id().as_ref();
             let window = active_window(app);
-            if matches!(
-                id,
-                "open-project"
-                    | "close-project"
-                    | "update-project"
-                    | "commit-project"
-                    | "push-project"
-            ) || id.starts_with("recent:")
-            {
+            if matches!(id, "open-project" | "close-project") || id.starts_with("recent:") {
                 if let Some(window) = window {
                     let _ = app.emit_to(window.label(), "repository-menu", id);
                 }
                 return;
+            }
+            if let Some(window) = &window {
+                if let Ok(state) = app.state::<ProjectWindows>().get(window.label()) {
+                    let sessions = WindowSession {
+                        label: window.label().into(),
+                        state,
+                    };
+                    if native_menu::menu_action_enabled(&sessions, id) {
+                        let _ = app.emit_to(window.label(), "repository-menu", id);
+                        return;
+                    }
+                }
             }
             if matches!(id, "commit" | "log") {
                 if let Some(window) = window {

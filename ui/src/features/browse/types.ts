@@ -1,4 +1,6 @@
 export interface RepoPath { bytes: number[]; display: string }
+export interface CurrentFileSelection { path: RepoPath; revision: string; source: 'changes' | 'commit'; versioned: boolean; untracked: boolean; conflicted: boolean }
+export interface NativeMenuActions { hasRepository: boolean; actions: Record<string, boolean> }
 export interface Branch { oid: string | null; head: string | null; upstream: string | null; ahead: number; behind: number }
 export interface Entry { path: RepoPath; original: RepoPath | null; xy: string; kind: string }
 export interface Status { branch: Branch; staged: Entry[]; unstaged: Entry[]; untracked: Entry[]; conflicts: Entry[] }

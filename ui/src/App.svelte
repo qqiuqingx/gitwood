@@ -1,7 +1,7 @@
 <script lang="ts">
   import { requestResolution } from './features/conflicts/model';
   import { conflictText } from './i18n/conflict';
-  import { onMount, untrack } from 'svelte';
+  import { onMount, tick, untrack } from 'svelte';
   import { invoke, isTauri } from '@tauri-apps/api/core';
   import { listen } from '@tauri-apps/api/event';
   import { listenWindowEvent } from './windowEvents';
@@ -26,6 +26,7 @@
   import OpenProjectDialog from './features/projects/OpenProjectDialog.svelte';
   import { ProjectOpening } from './features/projects/opening.svelte';
   import { RepositoryBrowser } from './features/browse/browser.svelte';
+  import type { NativeMenuActions } from './features/browse/types';
   import { browseText as b } from './i18n/browse';
   const browser = new RepositoryBrowser();
   const projects = new ProjectOpening(browser);
@@ -61,6 +62,7 @@
   import { appearance } from './theme/appearance.svelte';
   import HistoryPreferencesDialog from './features/git/HistoryPreferencesDialog.svelte';
   import { historyMenuText } from './i18n/history-menu';
+  import { nativeMenuLabels } from './i18n/native-menu';
 
   type EmptyCherryPick = 'skip' | 'createEmpty';
   interface Settings { theme: ThemeChoice; layout: Layout; cherryPickAddSuffixToPublishedCommits: boolean; emptyCherryPick: EmptyCherryPick }
@@ -68,6 +70,21 @@
   const t = (key: Parameters<typeof translate>[1]) => translate(locale, key);
   function togglePanel(panel: 'commit' | 'log') {
     void invoke('set_tool_window', { panel, visible: panel === 'commit' ? !layout.commitVisible : !layout.logVisible }).catch(error => { settingsError = String(error); });
+  }
+  function showLog() {
+    if (!layout.logVisible) void invoke('set_tool_window', { panel: 'log', visible: true }).catch(error => { settingsError = String(error); });
+  }
+  async function showCommit() {
+    if (!layout.commitVisible) {
+      await invoke('set_tool_window', { panel: 'commit', visible: true });
+      layout.commitVisible = true;
+      await tick();
+    }
+  }
+  function dispatchMenuAction(id: string) {
+    if (id === 'ChangesView.ToggleCommitUi') workflow?.runAction(id);
+    else if (id === 'CheckinProject' || id.startsWith('ChangesView.') || id === 'CheckinFiles') commitPanel?.runAction(id);
+    else workflow?.runAction(id);
   }
   let version = $state('');
   let layout = $state<Layout>(structuredClone(defaultLayout));
@@ -88,6 +105,42 @@
     // Send each UI change immediately; Rust debounces disk writes and flushes on exit.
     pendingSave = pendingSave.then(() => invoke('save_layout', { layout: JSON.parse(request) }))
       .then(() => {}).catch((error) => { settingsError = String(error); });
+  });
+
+  let lastNativeMenuContext = '';
+  let nativeMenuRequest = 0;
+  $effect(() => {
+    if (!browseReady || !browser.project || !browser.generation || !isTauri()) return;
+    const file = browser.currentFile;
+    const selection = {
+      currentFile: file ? { source: file.source, versioned: file.versioned, untracked: file.untracked, conflicted: file.conflicted } : null,
+      selectedChangeCount: browser.selectedChangeCount,
+      selectedCommitCount: browser.selection.size || (browser.selected ? 1 : 0),
+      busy: browser.workflowBusy || browser.commit.busy || browser.opening || projects.busy,
+    };
+    const signature = JSON.stringify({
+      generation: browser.generation,
+      status: browser.status && {
+        branch: browser.status.branch, changes: browser.status.changes, untracked: browser.status.untracked,
+        conflicts: browser.status.conflicts, operation: browser.status.operation, updateStash: browser.status.update_stash,
+      },
+      refs: browser.refs && {
+        head: browser.refs.head,
+        local: browser.refs.local.map(ref => [ref.name, ref.hash]),
+        remotes: Object.entries(browser.refs.remotes).map(([name, refs]) => [name, refs.map(ref => [ref.name, ref.hash])]),
+      },
+      selectedFile: file && [file.path.bytes, file.revision, file.source],
+      selected: browser.selected,
+      selection: [...browser.selection].sort(),
+      selectedChangeCount: browser.selectedChangeCount,
+      busy: selection.busy,
+    });
+    if (signature === lastNativeMenuContext) return;
+    lastNativeMenuContext = signature;
+    const request = ++nativeMenuRequest;
+    void invoke<NativeMenuActions>('update_native_menu_context', { generation: browser.generation, selection })
+      .then(value => { if (request === nativeMenuRequest && signature === lastNativeMenuContext) browser.nativeMenuActions = value; })
+      .catch(error => { if (request === nativeMenuRequest) browser.report(error); });
   });
 
   onMount(() => {
@@ -139,7 +192,7 @@
         });
       });
       if (disposed) { unlisten(); unlistenError(); unlistenExit(); return; }
-      const labels = Object.fromEntries(['file','open','recentProjects','closeProject','view','theme','system','light','dark','walnut','git','update','commitAction','push','commit','log','quit','edit','undo','redo','cut','copy','paste','selectAll'].map((key) => [key, t(key as Parameters<typeof t>[0])]));
+      const labels = { ...Object.fromEntries(['file','open','recentProjects','closeProject','view','theme','system','light','dark','walnut','git','update','commitAction','push','commit','log','quit','edit','undo','redo','cut','copy','paste','selectAll'].map((key) => [key, t(key as Parameters<typeof t>[0])])), ...nativeMenuLabels(locale) };
       const response = await invoke<{ settings: Settings; error: string | null }>('get_settings', { labels });
       if (disposed) return;
       layout = response.settings.layout;
@@ -167,11 +220,7 @@
         if (payload === 'open-project') void chooseRepository();
         else if (payload === 'close-project' && !projects.pending && !projects.busy) void browser.close().catch(error => browser.report(error));
         else if (payload.startsWith('recent:')) void projects.request(payload.slice(7));
-        else if (payload === 'update-project') workflow?.update();
-        else if (payload === 'commit-project') document.querySelector<HTMLElement>('.commit-panel textarea')?.focus();
-        else if (payload === 'push-project') workflow?.push();
-        else if (payload.startsWith('ChangesView.') || payload === 'Diff.ShowDiff') commitPanel?.runAction(payload);
-        else workflow?.runAction(payload);
+        else dispatchMenuAction(payload);
       });
       if (disposed) { menu(); return; } unlisteners.push(menu);
       const credential = await listenWindowEvent<CredentialRequest>('credential_request', ({ payload }) => {
@@ -197,7 +246,7 @@
 
 <main inert={closing}>
   <header><ProjectWidget {browser} busy={projects.busy} open={() => { void chooseRepository(); }} select={path => { void projects.request(path); }} />
-    <GitWorkflow bind:this={workflow} {browser} oncommitpush={() => { browser.commit.result = null; }} />
+    <GitWorkflow bind:this={workflow} {browser} oncommitpush={() => { browser.commit.result = null; }} onmenuaction={dispatchMenuAction} onshowlog={showLog} ontogglecommit={() => togglePanel('commit')} />
     <span class="grow"></span><button class="project" aria-label={b('refresh')} title={b('refresh')} disabled={!browser.project} onclick={() => { void browser.refresh({ status: true, refs: true, history: true }); }}>⟳</button><button class="project" aria-label={historyMenuText('preferences')} title={historyMenuText('preferences')} onclick={() => historyPreferencesOpen = true}>⚙</button>{#if version}<span>{version}</span>{/if}
   </header>
   {#if settingsError}<p role="alert">{t('settingsError')}: {settingsError}</p>{/if}
@@ -208,7 +257,7 @@
       <div class="panes"><Splitter axis="y" label={t('workspaceLog')} minFirst={240} minSecond={240} bind:ratio={layout.ratios.workspaceLog} secondVisible={layout.logVisible}>
         {#snippet first()}
           <Splitter label={t('commitDiff')} minFirst={220} minSecond={420} bind:ratio={layout.ratios.commitDiff} firstVisible={layout.commitVisible}>
-            {#snippet first()}<CommitPanel bind:this={commitPanel} {browser} oncurrentfile={(action,path,revision) => workflow?.showCurrentFileAction(action,path,revision)} bind:flat={layout.commitFlat} bind:preview={layout.commitPreview} refresh={() => { void browser.refresh({ status: true, refs: false, history: false }); }} commitPush={() => workflow?.commitAndPush()} />{/snippet}
+            {#snippet first()}<CommitPanel bind:this={commitPanel} {browser} onfocuscommit={showCommit} oncurrentfile={(action,path,revision) => workflow?.showCurrentFileAction(action,path,revision)} bind:flat={layout.commitFlat} bind:preview={layout.commitPreview} refresh={() => { void browser.refresh({ status: true, refs: false, history: false }); }} commitPush={() => workflow?.commitAndPush()} />{/snippet}
             {#snippet second()}<Preview {browser} bind:ratio={layout.ratios.diffVersions} />{/snippet}
           </Splitter>
         {/snippet}

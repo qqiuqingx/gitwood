@@ -125,6 +125,24 @@ impl Lease {
         target: &str,
         options: &RunOptions,
     ) -> Result<FileHistorySummary, GitError> {
+        let history = self
+            .file_history_load_with_options(path, target, options)
+            .await?;
+        let summary = FileHistorySummary {
+            id: history.id.clone(),
+            total: history.rows.len(),
+        };
+        self.data.lock().await.file_history = Some(Arc::new(history));
+        Ok(summary)
+    }
+
+    /// Reads a file history without replacing the history dialog's shared paging state.
+    pub(super) async fn file_history_load_with_options(
+        &self,
+        path: &RepoPath,
+        target: &str,
+        options: &RunOptions,
+    ) -> Result<FileHistory, GitError> {
         self.ensure_current()?;
         if !valid_repo_path(path) || path.bytes.contains(&0) {
             return Err(invalid("fileHistory.invalidPath"));
@@ -159,12 +177,7 @@ impl Lease {
             rows.first().map_or("empty", |row| row.hash.as_str()),
             path_hash.finish()
         );
-        let summary = FileHistorySummary {
-            id: id.clone(),
-            total: rows.len(),
-        };
-        self.data.lock().await.file_history = Some(Arc::new(FileHistory { id, rows }));
-        Ok(summary)
+        Ok(FileHistory { id, rows })
     }
 
     pub async fn file_history_page(

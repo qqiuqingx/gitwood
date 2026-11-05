@@ -2,11 +2,13 @@ import type { PopupItem } from '../../components/popup';
 import { currentFileText, type CurrentFileMessage } from '../../i18n/current-file';
 
 export type CurrentFileAction = 'history' | 'annotate' | 'annotatePrevious' | 'compareRevision' | 'compareBranch';
-export function currentFileItems(run: (action: CurrentFileAction) => void, text: (key: CurrentFileMessage) => string = currentFileText, enabled = true): PopupItem[] {
+export type CurrentFileAvailability = boolean | Partial<Record<CurrentFileAction, boolean>>;
+export function currentFileItems(run: (action: CurrentFileAction) => void, text: (key: CurrentFileMessage) => string = currentFileText, enabled: CurrentFileAvailability = true): PopupItem[] {
+  const isEnabled = (action: CurrentFileAction) => typeof enabled === 'boolean' ? enabled : enabled[action] === true;
   return [
-    { id: 'Git.CurrentFile.ShowHistory', label: text('history'), disabled: !enabled, run: () => run('history') },
-    { id: 'Git.CurrentFile.Annotate', label: text('annotate'), disabled: !enabled, run: () => run('annotate') },
-    { id: 'Git.CurrentFile.CompareRevision', label: text('compareRevision'), disabled: !enabled, run: () => run('compareRevision') },
-    { id: 'Git.CurrentFile.CompareBranch', label: text('compareBranch'), disabled: !enabled, run: () => run('compareBranch') },
+    { id: 'Git.CurrentFile.ShowHistory', label: text('history'), disabled: !isEnabled('history'), run: () => run('history') },
+    { id: 'Git.CurrentFile.Annotate', label: text('annotate'), disabled: !isEnabled('annotate'), run: () => run('annotate') },
+    { id: 'Git.CurrentFile.CompareRevision', label: text('compareRevision'), disabled: !isEnabled('compareRevision'), run: () => run('compareRevision') },
+    { id: 'Git.CurrentFile.CompareBranch', label: text('compareBranch'), disabled: !isEnabled('compareBranch'), run: () => run('compareBranch') },
   ];
 }

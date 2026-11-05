@@ -26,6 +26,13 @@ export interface PopupItem {
   run?: () => void;
 }
 
+/** Returns the quick key's row; disabled items keep their slot and remain non-executable. */
+export function quickSelectIndex(items: readonly PopupItem[], key: string): number {
+  const normalized = key.toLowerCase();
+  if (!/^[a-z0-9]$/.test(normalized)) return -1;
+  return items.findIndex(item => (!item.kind || item.kind === 'item') && item.shortcut?.toLowerCase() === normalized);
+}
+
 /** Keep a section title only when at least one of its items matches. */
 export function filterPopupItems(items: readonly PopupItem[], query: string): readonly PopupItem[] {
   if (!query) return items;

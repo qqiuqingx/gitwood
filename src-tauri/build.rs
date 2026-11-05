@@ -4,6 +4,7 @@ fn main() {
             "app_version",
             "get_theme",
             "get_settings",
+            "update_native_menu_context",
             "save_layout",
             "save_history_preferences",
             "set_tool_window",

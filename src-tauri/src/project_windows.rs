@@ -28,6 +28,7 @@ pub struct ProjectWindow {
     pub sessions: Sessions,
     pub project: Mutex<Option<PathBuf>>,
     pub layout: Mutex<Layout>,
+    pub native_menu: Mutex<crate::native_menu::ProjectMenuContext>,
     pub displays: Displays,
     /// Prompts belong to the window that started the remote operation.
     pub credentials: std::sync::Arc<Credentials>,
@@ -41,6 +42,7 @@ impl ProjectWindow {
             sessions: Sessions::default(),
             project: Mutex::new(project),
             layout: Mutex::new(layout),
+            native_menu: Mutex::new(crate::native_menu::ProjectMenuContext::default()),
             displays: Displays::default(),
             credentials: Default::default(),
             ui_ready: AtomicBool::new(false),

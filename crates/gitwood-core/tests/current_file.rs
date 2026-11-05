@@ -46,6 +46,40 @@ async fn file_history_tracks_rename_paths_and_pages_with_literal_special_names()
         .is_err());
 }
 
+#[tokio::test]
+async fn annotate_does_not_replace_an_open_file_history_pages() {
+    let repo = Repo::new().await;
+    repo.put("history.txt", "first revision\n");
+    repo.git("add", &["--", "history.txt"]).await;
+    repo.git("commit", &["-m", "history one"]).await;
+    repo.put("history.txt", "second revision\n");
+    repo.git("commit", &["-am", "history two"]).await;
+    repo.put("annotate.txt", "annotated file\n");
+    repo.git("add", &["--", "annotate.txt"]).await;
+    repo.git("commit", &["-m", "annotate file"]).await;
+
+    let sessions = Sessions::default();
+    let lease = sessions
+        .open(repo.runner.clone(), repo.options.clone())
+        .await
+        .unwrap();
+    let history = lease
+        .file_history_open(&RepoPath::new(b"history.txt"), "HEAD")
+        .await
+        .unwrap();
+    assert_eq!(history.total, 2);
+
+    lease
+        .annotate_open(&RepoPath::new(b"annotate.txt"), "HEAD")
+        .await
+        .unwrap();
+
+    let first = lease.file_history_page(&history.id, 0, 1).await.unwrap();
+    let second = lease.file_history_page(&history.id, 1, 2).await.unwrap();
+    assert_eq!(first.total, 2);
+    assert_eq!(second.rows[0].subject, "history one");
+}
+
 #[cfg(unix)]
 #[tokio::test]
 async fn file_history_passes_non_utf8_path_bytes_without_stringification() {

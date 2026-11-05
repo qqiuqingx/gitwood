@@ -38,13 +38,19 @@
   import CurrentFileDialog from './CurrentFileDialog.svelte';
   import type { CurrentFileAction } from './current-file-menu';
   import type { RepoPath } from '../browse/types';
+  import VcsOperationsPopup from './VcsOperationsPopup.svelte';
 
-  let { browser, oncommitpush }: { browser: RepositoryBrowser; oncommitpush: () => void } = $props();
+  let { browser, oncommitpush, onmenuaction = () => {}, onshowlog = () => {}, ontogglecommit = () => {} }: {
+    browser: RepositoryBrowser; oncommitpush: () => void; onmenuaction?: (action: string) => void;
+    onshowlog?: () => void; ontogglecommit?: () => void;
+  } = $props();
   let integration = $state<{ kind: Integration['kind']; seed: string } | null>(null);
   let comparison = $state<{ left: string; right: string | null; working: boolean } | null>(null);
   let upstreamBranch = $state<string | null>(null);
   let historyTreeRevision = $state<string | null>(null);
   let currentFile = $state<{ action: CurrentFileAction; path: RepoPath; revision: string } | null>(null);
+  let operationsOpen = $state(false);
+  let operationsAnchor = $state({ x: 0, y: 0, width: 0, height: 0 });
   let historyChildren = $state<string[]>([]);
   let stashCreateOpen = $state(false), stashManagerOpen = $state(false);
   let historyTarget = $state('');
@@ -64,9 +70,21 @@
   const canIntegrate = () => integrationEnabled(browser.refs, browser.status?.operation, busy || browser.commit.busy || !!integration || !!comparison || upstreamBranch !== null, browser.status?.conflicts, browser.status?.update_stash);
   const integrationActions = ['merge', 'rebase', 'pull'] as const;
   const actions = createActionRegistry();
-  let currentFileTarget = $state<{ path: RepoPath; revision: string } | null>(null);
-  for (const [action, id] of [['history', 'Git.CurrentFile.ShowHistory'], ['annotate', 'Git.CurrentFile.Annotate'], ['annotatePrevious', 'Git.CurrentFile.AnnotatePreviousRevision'], ['compareRevision', 'Git.CurrentFile.CompareRevision'], ['compareBranch', 'Git.CurrentFile.CompareBranch']] as const) {
-    actions.register(id, { run: () => { if (currentFileTarget) currentFile = { action, ...currentFileTarget }; }, enabled: () => !!browser.project && !!currentFileTarget && !busy });
+  const menuEnabled = (id: string) => () => browser.nativeMenuActions.actions[id] === true;
+  let currentFileTarget: { path: RepoPath; revision: string } | null = null;
+  for (const [action, id] of [
+    ['history', 'Git.CurrentFile.ShowHistory'], ['annotate', 'Git.CurrentFile.Annotate'],
+    ['annotatePrevious', 'Git.CurrentFile.AnnotatePreviousRevision'],
+    ['compareRevision', 'Git.CurrentFile.CompareRevision'], ['compareBranch', 'Git.CurrentFile.CompareBranch'],
+  ] as const) {
+    const enabledId = action === 'annotatePrevious' ? 'Git.CurrentFile.Annotate' : id;
+    actions.register(id, {
+      run: () => {
+        const target = currentFileTarget ?? browser.currentFile;
+        if (target) currentFile = { action, path: target.path, revision: target.revision };
+      },
+      enabled: menuEnabled(enabledId),
+    });
   }
   const registeredHistoryActions: Partial<Record<HistoryAction, string>> = {
     cherryPick: 'Git.CherryPick', revert: 'Git.Revert', reset: 'Git.ResetCurrentBranchToHere',
@@ -76,7 +94,10 @@
   };
   let historySelection: string[] = [];
   let actionTarget = '';
-  for (const kind of integrationActions) actions.register(`Git.${kind[0].toUpperCase()}${kind.slice(1)}`, { run: () => openIntegration(kind, actionTarget), enabled: canIntegrate });
+  for (const kind of integrationActions) {
+    const id = `Git.${kind[0].toUpperCase()}${kind.slice(1)}`;
+    actions.register(id, { run: () => openIntegration(kind, actionTarget), enabled: menuEnabled(id) });
+  }
   for (const [action, id] of Object.entries(registeredHistoryActions) as [HistoryAction, string][]) {
     actions.register(id, { run: () => { void openHistoryAction(action, actionTarget, historySelection); }, enabled: () => canRunHistoryAction(action) });
   }
@@ -85,8 +106,25 @@
   actions.register('Git.ShowDiffWithWorkingTree', { run: () => openComparison(true), enabled: () => !!browser.refs && !busy });
   actions.register('Git.SetUpstream', { run: () => openUpstream(actionTarget), enabled: canIntegrate });
   actions.register('Git.UnsetUpstream', { run: () => { popup = false; void write('set_upstream', { name: actionTarget, upstream: null }); }, enabled: canIntegrate });
-  actions.register('Git.StashChanges', { run: () => { stashCreateOpen = true; }, enabled: () => !!browser.project && !busy && !browser.commit.busy && !browser.status?.operation && !browser.status?.conflicts && (browser.status?.changes ?? 0) + (browser.status?.untracked ?? 0) > 0 });
-  actions.register('Git.UnstashChanges', { run: () => { stashManagerOpen = true; }, enabled: () => !!browser.project && !busy && !browser.commit.busy });
+  actions.register('Git.StashChanges', { run: () => { stashCreateOpen = true; }, enabled: menuEnabled('Git.StashChanges') });
+  actions.register('Git.UnstashChanges', { run: () => { stashManagerOpen = true; }, enabled: menuEnabled('Git.UnstashChanges') });
+  actions.register('Git.Fetch', { run: () => { void fetchRemote(); }, enabled: menuEnabled('Git.Fetch') });
+  actions.register('Vcs.UpdateProject', { run: () => update(), enabled: menuEnabled('Vcs.UpdateProject') });
+  actions.register('Vcs.Push', { run: () => push(), enabled: menuEnabled('Vcs.Push') });
+  actions.register('Git.Branches', { run: () => { popup = true; }, enabled: menuEnabled('Git.Branches') });
+  actions.register('Git.CreateNewBranch', { run: () => { name = ''; start = ''; checkout = true; dialog = 'new'; }, enabled: menuEnabled('Git.CreateNewBranch') });
+  actions.register('Git.Tag', { run: () => { const hash = browser.refs?.head.oid; if (hash && hash !== '(initial)') void openHistoryAction('newTag', hash, [hash]); }, enabled: menuEnabled('Git.Tag') });
+  actions.register('Git.Reset', { run: () => { if (browser.selected) void openHistoryAction('reset', browser.selected, [browser.selected]); }, enabled: menuEnabled('Git.Reset') });
+  actions.register('Vcs.Show.Log', { run: () => onshowlog(), enabled: menuEnabled('Vcs.Show.Log') });
+  actions.register('ChangesView.ToggleCommitUi', { run: () => ontogglecommit(), enabled: menuEnabled('ChangesView.ToggleCommitUi') });
+  actions.register('Git.Merge.Commit', { run: () => requestSequence('continue'), enabled: menuEnabled('Git.Merge.Commit') });
+  actions.register('Git.Merge.Abort', { run: () => requestSequence('abort'), enabled: menuEnabled('Git.Merge.Abort') });
+  actions.register('Git.Rebase.Continue', { run: () => requestSequence('continue'), enabled: menuEnabled('Git.Rebase.Continue') });
+  actions.register('Git.Rebase.Abort', { run: () => requestSequence('abort'), enabled: menuEnabled('Git.Rebase.Abort') });
+  actions.register('Git.Rebase.Skip', { run: () => requestSequence('skip'), enabled: menuEnabled('Git.Rebase.Skip') });
+  actions.register('Git.ResolveConflicts', { run: () => requestResolution(), enabled: menuEnabled('Git.ResolveConflicts') });
+  actions.register('Vcs.QuickListPopupAction', { run: () => openVcsOperations(), enabled: menuEnabled('Vcs.QuickListPopupAction') });
+  $effect(() => { browser.workflowBusy = busy || !!integration || !!comparison || upstreamBranch !== null; });
   function canHistoryWrite() {
     return !!browser.refs?.head.head && browser.refs.head.head !== '(detached)' && !!browser.refs.head.oid && browser.refs.head.oid !== '(initial)' && !busy && !browser.commit.busy && !integration && !comparison && !upstreamBranch
       && !browser.status?.operation && !browser.status?.conflicts && !browser.status?.update_stash;
@@ -108,8 +146,17 @@
     try { return actions.run(id); } finally { actionTarget = ''; }
   }
   export function showCurrentFileAction(action: CurrentFileAction, path: RepoPath, revision = 'HEAD') {
+    const id = action === 'annotatePrevious'
+      ? 'Git.CurrentFile.AnnotatePreviousRevision'
+      : `Git.CurrentFile.${action[0].toUpperCase()}${action.slice(1)}`;
     currentFileTarget = { path, revision };
-    actions.run(`Git.CurrentFile.${action[0].toUpperCase()}${action.slice(1)}`);
+    try { actions.run(id); } finally { currentFileTarget = null; }
+  }
+  function openVcsOperations() {
+    const width = Math.min(420, window.innerWidth - 16);
+    const height = Math.min(480, window.innerHeight - 16);
+    operationsAnchor = { x: (window.innerWidth - width) / 2, y: (window.innerHeight - height) / 2, width: 0, height: 0 };
+    operationsOpen = true;
   }
   function dispatchHistoryAction(action: HistoryAction, hash: string, selected: string[]) {
     const id = registeredHistoryActions[action];
@@ -553,6 +600,7 @@
   {#if ref?.upstream}<span class="upstream">{shortUpstream(ref.upstream)}</span>{/if}
 {/snippet}
 {#if popup && refs}<div class="branch-popup"><Popup items={branchItems} label={gitText('branches')} anchor={branchAnchor} onclose={() => { popup = false; }} /></div>{/if}
+{#if operationsOpen}<VcsOperationsPopup anchor={operationsAnchor} enabled={browser.nativeMenuActions.actions} onclose={() => { operationsOpen = false; }} onaction={onmenuaction} />{/if}
 
 {#if dialog}
   <dialog bind:this={workflowDialog} class="workflow-dialog" class:push={dialog === 'push'} aria-labelledby="workflow-title"

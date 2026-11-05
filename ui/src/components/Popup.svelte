@@ -6,12 +6,12 @@
   import { controlText } from '../i18n/controls';
   import List from './List.svelte';
   import Highlight from './Highlight.svelte';
-  import { filterPopupItems, positionPopup, type PopupItem, type Rect } from './popup';
+  import { filterPopupItems, positionPopup, quickSelectIndex, type PopupItem, type Rect } from './popup';
   import { selectable } from './list';
-  let { items, label, anchor, onclose, onexecute, submenu = false, defaultAction, filter = false, searchLabel = controlText('search'), noMatchLabel = controlText('noMatch') }: {
+  let { items, label, anchor, onclose, onexecute, submenu = false, defaultAction, filter = false, quickSelect = false, searchLabel = controlText('search'), noMatchLabel = controlText('noMatch') }: {
     items: readonly PopupItem[]; label: string; anchor: Rect | HTMLElement; onclose: () => void;
     onexecute?: () => void;
-    submenu?: boolean; defaultAction?: { label: string; run: () => void; enabled?: boolean };
+    submenu?: boolean; quickSelect?: boolean; defaultAction?: { label: string; run: () => void; enabled?: boolean };
     searchLabel?: string; noMatchLabel?: string;
     filter?: boolean;
   } = $props();
@@ -55,7 +55,15 @@
     };
     reposition = position;
     const outside = (event: PointerEvent) => { if (!host.contains(event.target as Node)) close(); };
+    const quickKey = (event: KeyboardEvent) => {
+      if (!quickSelect || filter || event.defaultPrevented || event.target === searchInput
+        || event.metaKey || event.ctrlKey || event.altKey || event.isComposing) return;
+      const index = quickSelectIndex(visibleItems, event.key);
+      if (index < 0) return;
+      event.preventDefault(); event.stopPropagation(); choose(index);
+    };
     document.addEventListener('pointerdown', outside, true);
+    host.addEventListener('keydown', quickKey, true);
     window.addEventListener('resize', position);
     // Anchor movement through scrolling must reposition the layer; no idle polling.
     window.addEventListener('scroll', position, true);
@@ -64,6 +72,7 @@
     void tick().then(() => { if (!closed) { if (filter) searchInput?.focus(); else list.focus(); const first = visibleItems.findIndex(selectable); if (first >= 0) list.selectIndex(first); } });
     return () => {
       observer.disconnect(); document.removeEventListener('pointerdown', outside, true);
+      host.removeEventListener('keydown', quickKey, true);
       window.removeEventListener('resize', position); window.removeEventListener('scroll', position, true);
       reposition = undefined; closed = true;
       // Wait until all submenu DOM is detached so its cleanup cannot steal focus back.

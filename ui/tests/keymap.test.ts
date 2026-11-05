@@ -63,6 +63,27 @@ it('leaves menu accelerators to the native menu even when an action is registere
   expect(calls).toBe(0);
 });
 
+it('does not dispatch native Git menu shortcuts a second time in the WebView', () => {
+  const registry = createActionRegistry();
+  const calls = vi.fn();
+  const cases = [
+    ['CheckinProject', { key: 'k', code: 'KeyK', metaKey: true }],
+    ['Vcs.Push', { key: 'k', code: 'KeyK', metaKey: true, shiftKey: true }],
+    ['Vcs.UpdateProject', { key: 't', code: 'KeyT', metaKey: true }],
+    ['Vcs.QuickListPopupAction', { key: 'v', code: 'KeyV', ctrlKey: true }],
+  ] as const;
+  for (const [id] of cases) registry.register(id, { run: calls });
+  for (const [id, overrides] of cases) {
+    const binding = macKeymap.find(candidate => candidate.action === id);
+    expect(binding?.handler).toBe('native-menu');
+    const e = event(overrides);
+    expect(registry.dispatch(e, macKeymap)).toBe(false);
+    expect(registry.dispatch(event(overrides), macKeymap, true)).toBe(false);
+    expect(e.preventDefault).not.toHaveBeenCalled();
+  }
+  expect(calls).not.toHaveBeenCalled();
+});
+
 it('uses source-backed Control+M history and recognizes macOS Option-modified rollback by physical key',()=>{
  const actions=createActionRegistry();const history=vi.fn(),rollback=vi.fn();actions.register('Vcs.ShowMessageHistory',{run:history,allowInInput:true});actions.register('ChangesView.Revert',{run:rollback});
  expect(actions.dispatch(event({key:'m',code:'KeyM',metaKey:false,ctrlKey:true}),macKeymap,true)).toBe(true);expect(history).toHaveBeenCalledOnce();

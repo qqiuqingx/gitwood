@@ -204,16 +204,10 @@ async fn history_rows(
     revision: &str,
     options: &crate::git::RunOptions,
 ) -> Result<Vec<super::file_history::FileRevision>, GitError> {
-    let history = lease
-        .file_history_open_with_options(path, revision, options)
-        .await?;
-    let data = lease.data.lock().await;
-    Ok(data
-        .file_history
-        .as_ref()
-        .filter(|value| value.id == history.id)
-        .map(|value| value.rows.clone())
-        .unwrap_or_default())
+    Ok(lease
+        .file_history_load_with_options(path, revision, options)
+        .await?
+        .rows)
 }
 
 fn attach_previous_revision(

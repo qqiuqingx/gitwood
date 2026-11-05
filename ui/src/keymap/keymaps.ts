@@ -29,6 +29,10 @@ export const macKeymap: readonly Binding[] = [
   { action: 'CloseActiveTab', shortcut: 'control shift F4', source: mac },
   { action: 'ActivateVersionControlToolWindow', shortcut: 'meta 9', source: mac, handler: 'native-menu' },
   { action: 'ActivateCommitToolWindow', shortcut: 'meta 0', source: mac, handler: 'native-menu' },
+  { action: 'CheckinProject', shortcut: 'meta K', source: 'platform/vcs-impl/resources/META-INF/VcsActions.xml (control K mapped on macOS; d0421b4e8)', handler: 'native-menu' },
+  { action: 'Vcs.Push', shortcut: 'meta shift K', source: 'platform/dvcs-impl/resources/intellij.platform.vcs.dvcs.impl.xml (control shift K mapped on macOS; d0421b4e8)', handler: 'native-menu' },
+  { action: 'Vcs.UpdateProject', shortcut: 'meta T', source: 'platform/vcs-impl/resources/META-INF/VcsActions.xml (control T mapped on macOS; d0421b4e8)', handler: 'native-menu' },
+  { action: 'Vcs.QuickListPopupAction', shortcut: 'control V', source: `${mac} (d0421b4e8)`, handler: 'native-menu' },
   { action: 'HideActiveWindow', shortcut: 'shift ESCAPE', source: parent },
 ];
 // Only inherited Diff bindings are sourced for Windows/Linux; runtime verification awaits v0.2.

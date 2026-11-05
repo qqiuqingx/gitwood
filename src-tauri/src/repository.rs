@@ -55,6 +55,7 @@ pub async fn open_repository(
     store: State<'_, SettingsStore>,
     path: std::path::PathBuf,
 ) -> Result<Opened, Error> {
+    crate::native_menu::repository_opening(&app, &sessions);
     let runner = GitRunner::discover(None).await?;
     let result = sessions.open(runner, RunOptions::new(&path)).await;
     let record = match &result {
@@ -177,6 +178,7 @@ mod display_path_tests {
 }
 #[tauri::command]
 pub fn close_repository(app: AppHandle, sessions: WindowSession) -> u64 {
+    crate::native_menu::repository_opening(&app, &sessions);
     *sessions.state.project.lock().unwrap() = None;
     if let Some(window) = app.get_webview_window(&sessions.label) {
         let _ = window.set_title("Gitwood");
@@ -185,23 +187,29 @@ pub fn close_repository(app: AppHandle, sessions: WindowSession) -> u64 {
 }
 #[tauri::command]
 pub async fn repository_status(
+    app: AppHandle,
     sessions: WindowSession,
     generation: u64,
 ) -> Result<StatusSummary, Error> {
     let l = sessions.lease(generation)?;
     let r = l.status().await;
     sessions.check(&l)?;
-    Ok(r?)
+    let status = r?;
+    crate::native_menu::status_changed(&app, &sessions, &status);
+    Ok(status)
 }
 #[tauri::command]
 pub async fn repository_refs(
+    app: AppHandle,
     sessions: WindowSession,
     generation: u64,
 ) -> Result<References, Error> {
     let l = sessions.lease(generation)?;
     let r = l.refs().await;
     sessions.check(&l)?;
-    Ok(r?)
+    let references = r?;
+    crate::native_menu::references_changed(&app, &sessions, &references);
+    Ok(references)
 }
 #[tauri::command]
 pub async fn history_layout(

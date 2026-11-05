@@ -10,6 +10,7 @@
     "allow-app-version",
     "allow-get-theme",
     "allow-get-settings",
+    "allow-update-native-menu-context",
     "allow-save-layout",
     "allow-save-history-preferences",
     "allow-finish-exit",
