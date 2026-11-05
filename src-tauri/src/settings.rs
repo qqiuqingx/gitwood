@@ -1,5 +1,5 @@
 //! Application settings, recent repository records and layout/window constraints.
-use serde::{Deserialize, Serialize};
+use serde::{de, Deserialize, Deserializer, Serialize, Serializer};
 use std::{
     fs::{self, File},
     io::{self, Write},
@@ -8,14 +8,66 @@ use std::{
     time::Duration,
 };
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
-#[serde(rename_all = "lowercase")]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub enum ThemeChoice {
     #[default]
     System,
     Light,
     Dark,
     Walnut,
+    User(String),
+}
+
+impl ThemeChoice {
+    pub fn from_id(id: &str) -> Option<Self> {
+        match id {
+            "system" => Some(Self::System),
+            "light" => Some(Self::Light),
+            "dark" => Some(Self::Dark),
+            "walnut" => Some(Self::Walnut),
+            value
+                if value
+                    .strip_prefix("user:")
+                    .is_some_and(|name| !name.is_empty()) =>
+            {
+                Some(Self::User(value[5..].to_owned()))
+            }
+            _ => None,
+        }
+    }
+
+    pub fn id(&self) -> String {
+        match self {
+            Self::System => "system".into(),
+            Self::Light => "light".into(),
+            Self::Dark => "dark".into(),
+            Self::Walnut => "walnut".into(),
+            Self::User(name) => format!("user:{name}"),
+        }
+    }
+
+    pub fn is_user(&self) -> bool {
+        matches!(self, Self::User(_))
+    }
+}
+
+impl Serialize for ThemeChoice {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_str(&self.id())
+    }
+}
+
+impl<'de> Deserialize<'de> for ThemeChoice {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let id = String::deserialize(deserializer)?;
+        Self::from_id(&id).ok_or_else(|| de::Error::custom("unknown theme choice"))
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -343,6 +395,28 @@ mod tests {
             decode(&serde_json::to_string(&original).unwrap()).unwrap(),
             original
         );
+    }
+
+    #[test]
+    fn theme_choice_keeps_legacy_builtin_ids_and_persists_user_ids() {
+        for (id, expected) in [
+            ("system", ThemeChoice::System),
+            ("light", ThemeChoice::Light),
+            ("dark", ThemeChoice::Dark),
+            ("walnut", ThemeChoice::Walnut),
+            ("user:custom-name", ThemeChoice::User("custom-name".into())),
+        ] {
+            assert_eq!(
+                serde_json::from_str::<ThemeChoice>(&format!("\"{id}\"")).unwrap(),
+                expected
+            );
+            assert_eq!(
+                serde_json::to_string(&expected).unwrap(),
+                format!("\"{id}\"")
+            );
+        }
+        assert!(serde_json::from_str::<ThemeChoice>("\"user:\"").is_err());
+        assert!(serde_json::from_str::<ThemeChoice>("\"unknown\"").is_err());
     }
     #[test]
     fn corrupt_file_loads_defaults_with_diagnostic() {

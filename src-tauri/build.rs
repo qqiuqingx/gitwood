@@ -3,6 +3,8 @@ fn main() {
         tauri_build::AppManifest::new().commands(&[
             "app_version",
             "get_theme",
+            "theme_catalog",
+            "set_theme",
             "get_settings",
             "update_native_menu_context",
             "save_layout",

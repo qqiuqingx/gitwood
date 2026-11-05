@@ -31,7 +31,7 @@ describe('theme CSSOM injection', () => {
 });
 
 // Vite expands these globs on every platform; no absolute machine paths.
-const components = import.meta.glob(['../src/components/*.svelte', '../src/features/diff/*.svelte', '../src/features/browse/*.svelte'], { query: '?raw', import: 'default', eager: true }) as Record<string, string>;
+const components = import.meta.glob(['../src/components/*.svelte', '../src/features/diff/*.svelte', '../src/features/browse/*.svelte', '../src/features/settings/*.svelte'], { query: '?raw', import: 'default', eager: true }) as Record<string, string>;
 // UI geometry defaults are shared by all themes; palette values still belong to each theme.
 const layoutKeys = [...layoutDefaults.matchAll(/(--[\w-]+):/g)].map(match => match[1]).filter(key => /--(diff-divider|diff-marker|checkbox|file-icon|commit-)/.test(key));
 const themes = import.meta.glob('../../crates/gitwood-core/src/theme/builtin/*.json', { eager: true, import: 'default' }) as Record<string, { colors: Record<string, unknown> }>;

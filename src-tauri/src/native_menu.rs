@@ -3,6 +3,7 @@ use crate::{
     native_git_menu,
     project_windows::{ProjectWindows, WindowSession},
     settings::{Settings, ThemeChoice},
+    themes::ThemeRegistry,
 };
 use gitwood_core::repo::{refs::References, session::StatusSummary};
 use serde::Deserialize;
@@ -11,7 +12,7 @@ use tauri::{
     AppHandle, Manager,
 };
 
-#[derive(Deserialize)]
+#[derive(Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct MenuLabels {
     file: String,
@@ -24,6 +25,7 @@ pub(crate) struct MenuLabels {
     light: String,
     dark: String,
     walnut: String,
+    theme_settings: String,
     git: String,
     update: String,
     commit_action: String,
@@ -70,8 +72,10 @@ impl MenuLabels {
     pub(crate) fn text(&self, key: &str) -> &str {
         match key {
             "file" | "open" | "recentProjects" | "closeProject" | "view" | "theme" | "system"
-            | "light" | "dark" | "walnut" | "commit" | "log" | "quit" | "edit" | "undo"
-            | "redo" | "cut" | "copy" | "paste" | "selectAll" => self.application_text(key),
+            | "light" | "dark" | "walnut" | "themeSettings" | "commit" | "log" | "quit"
+            | "edit" | "undo" | "redo" | "cut" | "copy" | "paste" | "selectAll" => {
+                self.application_text(key)
+            }
             _ => self.git_text(key),
         }
     }
@@ -88,6 +92,7 @@ impl MenuLabels {
             "light" => &self.light,
             "dark" => &self.dark,
             "walnut" => &self.walnut,
+            "themeSettings" => &self.theme_settings,
             "commit" => &self.commit,
             "log" => &self.log,
             "quit" => &self.quit,
@@ -147,6 +152,7 @@ pub(crate) fn install_menu(
     app: &AppHandle,
     settings: &Settings,
     labels: &MenuLabels,
+    themes: &ThemeRegistry,
 ) -> tauri::Result<()> {
     let menu = Menu::new(app)?;
     #[cfg(target_os = "macos")]
@@ -157,7 +163,7 @@ pub(crate) fn install_menu(
         labels,
         &NativeMenuActions::default(),
     )?)?;
-    append_view_menu(app, &menu, settings, labels)?;
+    append_view_menu(app, &menu, settings, labels, themes)?;
     #[cfg(not(target_os = "macos"))]
     menu.append(&quit_menu(app, labels)?)?;
     app.set_menu(menu)?;
@@ -232,6 +238,7 @@ fn append_view_menu(
     menu: &Menu<tauri::Wry>,
     settings: &Settings,
     labels: &MenuLabels,
+    themes: &ThemeRegistry,
 ) -> tauri::Result<()> {
     let commit = CheckMenuItem::with_id(
         app,
@@ -257,12 +264,17 @@ fn append_view_menu(
             "Alt+9"
         }),
     )?;
-    let themes = theme_menu(app, settings, labels)?;
+    let themes_menu = theme_menu(app, settings, labels, themes)?;
     menu.append(&Submenu::with_items(
         app,
         labels.text("view"),
         true,
-        &[&commit, &log, &PredefinedMenuItem::separator(app)?, &themes],
+        &[
+            &commit,
+            &log,
+            &PredefinedMenuItem::separator(app)?,
+            &themes_menu,
+        ],
     )?)?;
     Ok(())
 }
@@ -271,8 +283,20 @@ fn theme_menu(
     app: &AppHandle,
     settings: &Settings,
     labels: &MenuLabels,
+    registry: &ThemeRegistry,
 ) -> tauri::Result<Submenu<tauri::Wry>> {
-    let themes = Submenu::new(app, labels.text("theme"), true)?;
+    let themes = Submenu::with_id(app, "theme-menu", labels.text("theme"), true)?;
+    populate_theme_items(app, &themes, settings, labels, registry)?;
+    Ok(themes)
+}
+
+fn populate_theme_items(
+    app: &AppHandle,
+    themes: &Submenu<tauri::Wry>,
+    settings: &Settings,
+    labels: &MenuLabels,
+    registry: &ThemeRegistry,
+) -> tauri::Result<()> {
     for (id, key, choice) in [
         ("system", "system", ThemeChoice::System),
         ("light", "light", ThemeChoice::Light),
@@ -288,7 +312,59 @@ fn theme_menu(
             None::<&str>,
         )?)?;
     }
-    Ok(themes)
+    for user in registry.users() {
+        let choice = ThemeChoice::from_id(&user.id).expect("registered user theme has valid ID");
+        themes.append(&CheckMenuItem::with_id(
+            app,
+            format!("theme-{}", user.id),
+            &user.theme.name,
+            true,
+            settings.theme == choice,
+            None::<&str>,
+        )?)?;
+    }
+    themes.append(&PredefinedMenuItem::separator(app)?)?;
+    themes.append(&MenuItem::with_id(
+        app,
+        "theme-settings",
+        labels.text("themeSettings"),
+        true,
+        None::<&str>,
+    )?)?;
+    Ok(())
+}
+
+pub(crate) fn refresh_theme_menu(
+    app: &AppHandle,
+    settings: &Settings,
+    labels: &MenuLabels,
+    registry: &ThemeRegistry,
+) -> tauri::Result<()> {
+    fn visit(
+        app: &AppHandle,
+        settings: &Settings,
+        labels: &MenuLabels,
+        registry: &ThemeRegistry,
+        items: Vec<MenuItemKind<tauri::Wry>>,
+    ) -> tauri::Result<bool> {
+        for item in items {
+            if let MenuItemKind::Submenu(submenu) = item {
+                if submenu.id().as_ref() == "theme-menu" {
+                    while submenu.remove_at(0)?.is_some() {}
+                    populate_theme_items(app, &submenu, settings, labels, registry)?;
+                    return Ok(true);
+                }
+                if visit(app, settings, labels, registry, submenu.items()?)? {
+                    return Ok(true);
+                }
+            }
+        }
+        Ok(false)
+    }
+    if let Some(menu) = app.menu() {
+        let _ = visit(app, settings, labels, registry, menu.items()?)?;
+    }
+    Ok(())
 }
 
 pub(crate) fn update_menu(
@@ -346,13 +422,13 @@ fn update_action_item(item: MenuItem<tauri::Wry>, native: &NativeMenuActions) ->
 }
 
 fn update_check_item(item: CheckMenuItem<tauri::Wry>, settings: &Settings) -> tauri::Result<()> {
-    let checked = match item.id().as_ref() {
+    let id = item.id();
+    let checked = match id.as_ref() {
         "commit" => Some(settings.layout.commit_visible),
         "log" => Some(settings.layout.log_visible),
-        "theme-system" => Some(settings.theme == ThemeChoice::System),
-        "theme-light" => Some(settings.theme == ThemeChoice::Light),
-        "theme-dark" => Some(settings.theme == ThemeChoice::Dark),
-        "theme-walnut" => Some(settings.theme == ThemeChoice::Walnut),
+        id if id.starts_with("theme-") => {
+            ThemeChoice::from_id(&id[6..]).map(|choice| settings.theme == choice)
+        }
         _ => None,
     };
     if let Some(checked) = checked {

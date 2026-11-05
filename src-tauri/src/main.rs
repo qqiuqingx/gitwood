@@ -12,6 +12,7 @@ mod native_window;
 mod operations;
 mod project_windows;
 mod repository;
+mod themes;
 use conflicts::*;
 use operations::*;
 mod settings;
@@ -24,8 +25,9 @@ use native_window::{
 };
 use serde::Serialize;
 use settings::{Ratios, Settings, SettingsStore, ThemeChoice};
-use std::sync::atomic::Ordering;
+use std::sync::{atomic::Ordering, Mutex};
 use tauri::{AppHandle, Emitter, Manager, RunEvent, State, WebviewWindow, WindowEvent};
+use themes::{ThemeCatalogResponse, ThemeRegistry};
 
 #[tauri::command]
 fn app_version() -> &'static str {
@@ -33,8 +35,71 @@ fn app_version() -> &'static str {
 }
 
 #[tauri::command]
-fn get_theme(name: &str) -> gitwood_core::theme::Theme {
-    gitwood_core::theme::get_theme(name)
+fn get_theme(
+    name: &str,
+    system_dark: bool,
+    themes: State<'_, ThemeRegistry>,
+) -> gitwood_core::theme::Theme {
+    themes.theme(name, system_dark)
+}
+
+#[tauri::command]
+fn theme_catalog(themes: State<'_, ThemeRegistry>) -> ThemeCatalogResponse {
+    themes.response()
+}
+
+#[derive(Default)]
+struct MenuLabelsStore(Mutex<Option<MenuLabels>>);
+
+fn publish_preferences(app: &AppHandle, store: &SettingsStore) {
+    for (label, state) in app.state::<ProjectWindows>().all() {
+        let sessions = WindowSession { label, state };
+        if let Err(error) = sessions.emit(
+            app,
+            "preferences-changed",
+            window_settings(store, &sessions),
+        ) {
+            eprintln!("Unable to update preferences: {error}");
+        }
+    }
+}
+
+fn refresh_theme_menu(app: &AppHandle, store: &SettingsStore, themes: &ThemeRegistry) {
+    let labels = app.state::<MenuLabelsStore>().0.lock().unwrap().clone();
+    if let Some(labels) = labels {
+        if let Err(error) = native_menu::refresh_theme_menu(app, &store.snapshot(), &labels, themes)
+        {
+            eprintln!("Unable to update theme menu: {error}");
+        }
+    }
+}
+
+fn apply_theme_choice(
+    app: &AppHandle,
+    store: &SettingsStore,
+    themes: &ThemeRegistry,
+    choice: ThemeChoice,
+) -> Result<(), String> {
+    if choice.is_user() && !themes.has_user(&choice.id()) {
+        return Err("The selected user theme is unavailable".into());
+    }
+    store.update(|settings| settings.theme = choice);
+    publish_preferences(app, store);
+    refresh_theme_menu(app, store, themes);
+    refresh_active_menu(app);
+    Ok(())
+}
+
+fn theme_catalog_changed(app: &AppHandle, themes: &ThemeRegistry, store: &SettingsStore) {
+    themes.refresh();
+    refresh_theme_menu(app, store, themes);
+    for (label, state) in app.state::<ProjectWindows>().all() {
+        let sessions = WindowSession { label, state };
+        if let Err(error) = sessions.emit(app, "theme-catalog-changed", ()) {
+            eprintln!("Unable to update theme list: {error}");
+        }
+    }
+    refresh_active_menu(app);
 }
 
 #[derive(Serialize)]
@@ -50,14 +115,28 @@ fn get_settings(
     sessions: WindowSession,
     store: State<'_, SettingsStore>,
     labels: MenuLabels,
+    themes: State<'_, ThemeRegistry>,
+    label_store: State<'_, MenuLabelsStore>,
 ) -> Result<SettingsResponse, String> {
     let settings = window_settings(&store, &sessions);
-    install_menu(&app, &settings, &labels).map_err(|e| e.to_string())?;
+    *label_store.0.lock().unwrap() = Some(labels.clone());
+    install_menu(&app, &settings, &labels, &themes).map_err(|e| e.to_string())?;
     sessions.state.ui_ready.store(true, Ordering::SeqCst);
     Ok(SettingsResponse {
         settings,
         error: store.error(),
     })
+}
+
+#[tauri::command]
+fn set_theme(
+    app: AppHandle,
+    store: State<'_, SettingsStore>,
+    themes: State<'_, ThemeRegistry>,
+    name: String,
+) -> Result<(), String> {
+    let choice = ThemeChoice::from_id(&name).ok_or_else(|| "Unknown theme choice".to_owned())?;
+    apply_theme_choice(&app, &store, &themes, choice)
 }
 
 /// Layout the UI owns: split ratios and the Commit panel view toggles. Tool window
@@ -265,6 +344,11 @@ fn main() {
                     let _ = handle.emit("settings-error", error);
                 },
             );
+            let theme_directory =
+                themes::user_theme_directory(app.handle()).map_err(std::io::Error::other)?;
+            let theme_registry = ThemeRegistry::open(theme_directory.clone());
+            app.manage(theme_registry.clone());
+            app.manage(MenuLabelsStore::default());
             let window = app
                 .get_webview_window("main")
                 .expect("configured main window");
@@ -280,14 +364,27 @@ fn main() {
                 .0
                 .lock()
                 .unwrap() = display_work_areas(&window)?;
+            let watcher_app = app.handle().clone();
+            let watcher_themes = theme_registry.clone();
+            let watcher_store = store.clone();
             app.manage(store);
             app.manage(windows);
+            match gitwood_core::theme::ThemeWatch::start(theme_directory, move || {
+                theme_catalog_changed(&watcher_app, &watcher_themes, &watcher_store);
+            }) {
+                Ok(watcher) => {
+                    app.manage(watcher);
+                }
+                Err(error) => eprintln!("Unable to watch user themes: {error}"),
+            }
             window.show()?;
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
             app_version,
             get_theme,
+            theme_catalog,
+            set_theme,
             get_settings,
             native_menu::update_native_menu_context,
             save_layout,
@@ -369,6 +466,12 @@ fn main() {
             let store = app.state::<SettingsStore>();
             let id = event.id().as_ref();
             let window = active_window(app);
+            if id == "theme-settings" {
+                if let Some(window) = window {
+                    let _ = app.emit_to(window.label(), "open-theme-settings", ());
+                }
+                return;
+            }
             if matches!(id, "open-project" | "close-project") || id.starts_with("recent:") {
                 if let Some(window) = window {
                     let _ = app.emit_to(window.label(), "repository-menu", id);
@@ -416,25 +519,16 @@ fn main() {
                 }
                 return;
             }
-            match id {
-                "theme-system" => store.update(|s| s.theme = ThemeChoice::System),
-                "theme-light" => store.update(|s| s.theme = ThemeChoice::Light),
-                "theme-dark" => store.update(|s| s.theme = ThemeChoice::Dark),
-                "theme-walnut" => store.update(|s| s.theme = ThemeChoice::Walnut),
-                _ => return,
+            let Some(choice_id) = id.strip_prefix("theme-") else {
+                return;
+            };
+            let Some(choice) = ThemeChoice::from_id(choice_id) else {
+                return;
+            };
+            let themes = app.state::<ThemeRegistry>();
+            if let Err(error) = apply_theme_choice(app, &store, &themes, choice) {
+                eprintln!("Unable to select theme: {error}");
             }
-            // Theme is application-wide; each recipient retains its own layout.
-            for (label, state) in app.state::<ProjectWindows>().all() {
-                let sessions = WindowSession { label, state };
-                if let Err(error) = sessions.emit(
-                    app,
-                    "preferences-changed",
-                    window_settings(&store, &sessions),
-                ) {
-                    eprintln!("Unable to update preferences: {error}");
-                }
-            }
-            refresh_active_menu(app);
         })
         .build(tauri::generate_context!())
         .expect("failed to build Gitwood");

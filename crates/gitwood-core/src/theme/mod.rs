@@ -3,6 +3,16 @@ use serde::Serialize;
 use serde_json::Value;
 use std::collections::BTreeMap;
 
+pub mod contrast;
+pub mod user;
+pub mod watch;
+
+pub use contrast::{contrast_issues, contrast_ratio, ContrastIssue};
+pub use user::{
+    load_user_themes, ThemeFileError, UserTheme, UserThemeCatalog, MAX_THEME_FILE_BYTES,
+};
+pub use watch::ThemeWatch;
+
 const LIGHT: &str = include_str!("builtin/light.json");
 const DARK: &str = include_str!("builtin/dark.json");
 const WALNUT: &str = include_str!("builtin/walnut.json");
@@ -14,7 +24,7 @@ pub struct ThemeError {
     pub message: String,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Theme {
     pub schema_version: u32,
@@ -152,6 +162,17 @@ fn resolve(
         if !document[key].as_str().is_some_and(|s| !s.trim().is_empty()) {
             error(errors, "invalid_field", key, "Expected a nonempty string");
         }
+    }
+    if document
+        .get("$schema")
+        .is_some_and(|schema| !schema.is_string())
+    {
+        error(
+            errors,
+            "invalid_field",
+            "$schema",
+            "Expected a schema URL string",
+        );
     }
     if !document["dark"].is_boolean() {
         error(errors, "invalid_field", "dark", "Expected a boolean");

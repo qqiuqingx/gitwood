@@ -61,6 +61,7 @@
   import { applyTheme, effectiveTheme, type Theme, type ThemeChoice, type ThemeError } from './theme';
   import { appearance } from './theme/appearance.svelte';
   import HistoryPreferencesDialog from './features/git/HistoryPreferencesDialog.svelte';
+  import ThemeSettingsDialog from './features/settings/ThemeSettingsDialog.svelte';
   import { historyMenuText } from './i18n/history-menu';
   import { nativeMenuLabels } from './i18n/native-menu';
 
@@ -92,11 +93,27 @@
   let settingsError = $state('');
   let closing = $state(false);
   let themeErrors = $state<ThemeError[]>([]);
+  let themeUnavailable = $state(false);
+  let themeChoice = $state<ThemeChoice>('system');
   let historyPreferencesOpen = $state(false);
+  let themeDialogOpen = $state(false);
+  let refreshThemeAfterDialog: () => void = () => {};
   let cherryPickAddSuffixToPublished = $state(true);
   let emptyCherryPick = $state<EmptyCherryPick>('skip');
   let lastLayout = '';
   let pendingSave = Promise.resolve();
+
+  async function previewTheme(name: ThemeChoice) {
+    const systemDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+    const selected = effectiveTheme(name, systemDark);
+    const theme = await invoke<Theme>('get_theme', { name: selected, systemDark });
+    applyTheme(theme);
+  }
+
+  function closeThemeDialog() {
+    themeDialogOpen = false;
+    refreshThemeAfterDialog();
+  }
 
   $effect(() => {
     const request = JSON.stringify(layoutRequest(layout));
@@ -147,26 +164,35 @@
     document.documentElement.lang = locale;
     if (!isTauri()) return;
     const system = window.matchMedia('(prefers-color-scheme: dark)');
-    let choice: ThemeChoice = 'system';
     let active = '';
     let generation = 0;
     let disposed = false;
     let unlisten: (() => void) | undefined;
     let unlistenError: (() => void) | undefined;
     let unlistenExit: (() => void) | undefined;
-    async function refreshTheme() {
-      const name = effectiveTheme(choice, system.matches);
-      if (name === active) return;
+    let unlistenThemeCatalog: (() => void) | undefined;
+    let unlistenOpenThemes: (() => void) | undefined;
+    async function refreshTheme(force = false, apply = true) {
+      const name = effectiveTheme(themeChoice, system.matches);
+      if (name === active && !force) return;
       active = name;
       const request = ++generation;
       try {
-        const theme = await invoke<Theme>('get_theme', { name });
-        if (!disposed && request === generation) { applyTheme(theme); appearance.dark = theme.dark; themeErrors = theme.errors; }
+        const theme = await invoke<Theme>('get_theme', { name, systemDark: system.matches });
+        if (!disposed && request === generation) {
+          themeUnavailable = theme.errors.some(error => error.code === 'theme_unavailable');
+          themeErrors = theme.errors.filter(error => error.code !== 'theme_unavailable');
+          if (apply) {
+            applyTheme(theme);
+            appearance.dark = theme.dark;
+          }
+        }
       } catch (error) {
         if (!disposed && request === generation) { active = ''; settingsError = String(error); }
       }
     }
-    const systemChanged = () => { if (choice === 'system') void refreshTheme(); };
+    refreshThemeAfterDialog = () => { void refreshTheme(true, true); };
+    const systemChanged = () => { if ((themeChoice === 'system' || themeUnavailable) && !themeDialogOpen) void refreshTheme(true); };
     system.addEventListener('change', systemChanged);
     async function initialize() {
       unlisten = await listenWindowEvent<Settings>('preferences-changed', ({ payload }) => {
@@ -174,12 +200,18 @@
         // Commit view toggles: they are written by this window and need no echo.
         layout.commitVisible = payload.layout.commitVisible;
         layout.logVisible = payload.layout.logVisible;
-        choice = payload.theme;
+        themeChoice = payload.theme;
         cherryPickAddSuffixToPublished = payload.cherryPickAddSuffixToPublishedCommits;
         emptyCherryPick = payload.emptyCherryPick;
-        void refreshTheme();
+        void refreshTheme(true);
       });
       if (disposed) { unlisten(); return; }
+      unlistenThemeCatalog = await listenWindowEvent('theme-catalog-changed', () => {
+        void refreshTheme(true, !themeDialogOpen);
+      });
+      if (disposed) { unlisten(); unlistenThemeCatalog(); return; }
+      unlistenOpenThemes = await listenWindowEvent('open-theme-settings', () => { themeDialogOpen = true; });
+      if (disposed) { unlisten(); unlistenThemeCatalog(); unlistenOpenThemes(); return; }
       unlistenError = await listen<string>('settings-error', ({ payload }) => { settingsError = payload; });
       if (disposed) { unlisten(); unlistenError(); return; }
       unlistenExit = await listenWindowEvent('save-before-exit', () => {
@@ -192,22 +224,22 @@
         });
       });
       if (disposed) { unlisten(); unlistenError(); unlistenExit(); return; }
-      const labels = { ...Object.fromEntries(['file','open','recentProjects','closeProject','view','theme','system','light','dark','walnut','git','update','commitAction','push','commit','log','quit','edit','undo','redo','cut','copy','paste','selectAll'].map((key) => [key, t(key as Parameters<typeof t>[0])])), ...nativeMenuLabels(locale) };
+      const labels = { ...Object.fromEntries(['file','open','recentProjects','closeProject','view','theme','system','light','dark','walnut','themeSettings','git','update','commitAction','push','commit','log','quit','edit','undo','redo','cut','copy','paste','selectAll'].map((key) => [key, t(key as Parameters<typeof t>[0])])), ...nativeMenuLabels(locale) };
       const response = await invoke<{ settings: Settings; error: string | null }>('get_settings', { labels });
       if (disposed) return;
       layout = response.settings.layout;
-      choice = response.settings.theme;
+      themeChoice = response.settings.theme;
       cherryPickAddSuffixToPublished = response.settings.cherryPickAddSuffixToPublishedCommits;
       emptyCherryPick = response.settings.emptyCherryPick;
       settingsError = response.error ?? '';
       lastLayout = JSON.stringify(layoutRequest(layout));
       ready = true;
-      await refreshTheme();
+      await refreshTheme(true);
       version = await invoke<string>('app_version');
       browseReady = true;
     }
     initialize().catch((error) => { settingsError = String(error); });
-    return () => { disposed = true; generation++; unlisten?.(); unlistenError?.(); unlistenExit?.(); system.removeEventListener('change', systemChanged); };
+    return () => { disposed = true; generation++; refreshThemeAfterDialog = () => {}; unlisten?.(); unlistenError?.(); unlistenExit?.(); unlistenThemeCatalog?.(); unlistenOpenThemes?.(); system.removeEventListener('change', systemChanged); };
   });
   $effect(() => {
     if (!browseReady) return;
@@ -247,9 +279,10 @@
 <main inert={closing}>
   <header><ProjectWidget {browser} busy={projects.busy} open={() => { void chooseRepository(); }} select={path => { void projects.request(path); }} />
     <GitWorkflow bind:this={workflow} {browser} oncommitpush={() => { browser.commit.result = null; }} onmenuaction={dispatchMenuAction} onshowlog={showLog} ontogglecommit={() => togglePanel('commit')} />
-    <span class="grow"></span><button class="project" aria-label={b('refresh')} title={b('refresh')} disabled={!browser.project} onclick={() => { void browser.refresh({ status: true, refs: true, history: true }); }}>⟳</button><button class="project" aria-label={historyMenuText('preferences')} title={historyMenuText('preferences')} onclick={() => historyPreferencesOpen = true}>⚙</button>{#if version}<span>{version}</span>{/if}
+    <span class="grow"></span><button class="project" aria-label={b('refresh')} title={b('refresh')} disabled={!browser.project} onclick={() => { void browser.refresh({ status: true, refs: true, history: true }); }}>⟳</button><button class="project" aria-label={historyMenuText('preferences')} title={historyMenuText('preferences')} onclick={() => historyPreferencesOpen = true}>⚙</button><button class="project" aria-label={t('themeSettings')} title={t('themeSettings')} onclick={() => themeDialogOpen = true}>◉</button>{#if version}<span>{version}</span>{/if}
   </header>
   {#if settingsError}<p role="alert">{t('settingsError')}: {settingsError}</p>{/if}
+  {#if themeUnavailable}<p role="alert">{t('themeUnavailable')}</p>{/if}
   {#if themeErrors.length}<p role="alert">{t('themeError')}: {themeErrors.map(error => `${error.path}: ${error.message}`).join('; ')}</p>{/if}
   {#if browser.project}
     <div class="workspace">
@@ -292,6 +325,7 @@
 {#if projects.pending}<OpenProjectDialog path={projects.pending} choose={target => { void projects.choose(target); }} cancel={() => projects.cancel()} />{/if}
 </main>
 {#if historyPreferencesOpen}<HistoryPreferencesDialog suffix={cherryPickAddSuffixToPublished} empty={emptyCherryPick} onclose={() => { historyPreferencesOpen = false; }} />{/if}
+{#if themeDialogOpen}<ThemeSettingsDialog {locale} currentTheme={themeChoice} {previewTheme} onclose={closeThemeDialog} />{/if}
 <style>
   main { display: flex; flex-direction: column; height: 100%; }
   header, footer { display: flex; align-items: center; gap: var(--space-inline); flex: none; padding: var(--space-header-y) var(--space-panel-x); background: var(--background-header); color: var(--text-header); border-bottom: var(--border-width) solid var(--separator); }

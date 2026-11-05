@@ -1,6 +1,10 @@
-export type ThemeChoice = 'system' | 'light' | 'dark' | 'walnut';
+export type ThemeChoice = 'system' | 'light' | 'dark' | 'walnut' | `user:${string}`;
 export interface ThemeError { code: string; path: string; message: string }
 export interface Theme { name: string; dark: boolean; variables: Record<string, string>; errors: ThemeError[] }
+export interface ContrastIssue { foreground: string; background: string; ratio: number; minimum: number }
+export interface ThemeDescriptor { id: Exclude<ThemeChoice, 'system'>; name: string; dark: boolean; builtIn: boolean; contrastIssues: ContrastIssue[] }
+export interface ThemeFileError { fileName: string; errors: ThemeError[] }
+export interface ThemeCatalog { directory: string; themes: ThemeDescriptor[]; errors: ThemeFileError[] }
 let appliedVariables: string[] = [];
 
 /** Apply the validated map through CSSOM without replacing any UI or repository state. */

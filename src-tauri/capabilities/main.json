@@ -9,6 +9,8 @@
   "permissions": [
     "allow-app-version",
     "allow-get-theme",
+    "allow-theme-catalog",
+    "allow-set-theme",
     "allow-get-settings",
     "allow-update-native-menu-context",
     "allow-save-layout",
