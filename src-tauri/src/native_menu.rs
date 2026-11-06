@@ -511,10 +511,8 @@ pub(crate) fn update_native_menu_context(
     sessions: WindowSession,
     generation: u64,
     selection: NativeMenuSelection,
-) -> Result<NativeMenuActions, String> {
-    sessions
-        .lease(generation)
-        .map_err(|error| error.to_string())?;
+) -> Result<NativeMenuActions, crate::repository::Error> {
+    sessions.lease(generation)?;
     let (changed, presentation) = {
         let mut context = sessions.state.native_menu.lock().unwrap();
         let changed = context.set_selection(selection);

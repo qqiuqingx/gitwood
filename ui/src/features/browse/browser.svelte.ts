@@ -101,6 +101,8 @@ export class RepositoryBrowser {
   }
   dispose() { this.disposed = true; this.session.invalidate(); this.pages.invalidate(); this.selectionGate.invalidate(); }
   report(error: unknown) {
+    // Some commands reject with a bare key string; a stale generation is never user-facing.
+    if (error === 'repository.stale') return;
     const value: RepositoryError = typeof error === 'object' && error !== null ? error : { detail: String(error) };
     if (value.key !== 'repository.stale') this.error = value;
   }
