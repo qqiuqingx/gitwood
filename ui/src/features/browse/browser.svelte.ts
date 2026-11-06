@@ -2,7 +2,7 @@ import { CommitSession } from '../commit/session.svelte';
 import { tick } from 'svelte';
 import { invoke } from '@tauri-apps/api/core';
 import { buildFilter, emptyFilter, mergeRefresh, preserveViewport, RequestGate } from './model';
-import type { Commit, CurrentFileSelection, FilterInput, HistoryRow, NativeMenuActions, Opened, Recent, References, Refresh, RepositoryError, Rows, StatusSummary } from './types';
+import type { Commit, CurrentFileSelection, FilterInput, HistoryRow, HostedRemote, NativeMenuActions, Opened, Recent, References, Refresh, RepositoryError, Rows, StatusSummary } from './types';
 
 /** List row ID of a commit row that is not loaded yet. */
 export const placeholder = 'row:';
@@ -31,6 +31,7 @@ export class RepositoryBrowser {
   workflowBusy = $state(false);
   nativeMenuActions = $state.raw<NativeMenuActions>({ hasRepository: false, actions: {} });
   refs = $state<References | null>(null);
+  hostedRemotes = $state<HostedRemote[]>([]);
   rows = $state.raw(new Map<number, HistoryRow>());
   total = $state(0);
   selected = $state('');
@@ -73,7 +74,7 @@ export class RepositoryBrowser {
     this.pages.invalidate(); this.selectionGate.invalidate();
     this.previewFile = null; this.project = null; this.generation = 0; this.opening = true; this.error = null;
     this.rows = new Map(); this.total = 0; this.status = null; this.statusRevision = 0; this.statusGeneration = 0; this.refs = null;
-    this.selected = ''; this.selection = new Set(); this.currentFile = null; this.selectedChangeCount = 0; this.workflowBusy = false; this.nativeMenuActions = { hasRepository: false, actions: {} }; this.activeIndex = -1; this.scrollTop = 0; this.details = null;
+    this.selected = ''; this.selection = new Set(); this.currentFile = null; this.selectedChangeCount = 0; this.workflowBusy = false; this.nativeMenuActions = { hasRepository: false, actions: {} }; this.hostedRemotes = []; this.activeIndex = -1; this.scrollTop = 0; this.details = null;
     this.filter = emptyFilter(); this.pending = nothing();
     try {
       // Discovery precedes backend session installation. Serialize open/close so
@@ -93,7 +94,7 @@ export class RepositoryBrowser {
     if (this.commit.busy) return;
     this.commit = new CommitSession();
     this.session.invalidate(); this.pages.invalidate(); this.selectionGate.invalidate();
-    this.previewFile = null; this.project = null; this.generation = 0; this.rows = new Map(); this.selection = new Set(); this.currentFile = null; this.selectedChangeCount = 0; this.workflowBusy = false; this.nativeMenuActions = { hasRepository: false, actions: {} }; this.status = null; this.statusRevision = 0; this.statusGeneration = 0; this.refs = null;
+    this.previewFile = null; this.project = null; this.generation = 0; this.rows = new Map(); this.selection = new Set(); this.currentFile = null; this.selectedChangeCount = 0; this.workflowBusy = false; this.nativeMenuActions = { hasRepository: false, actions: {} }; this.status = null; this.statusRevision = 0; this.statusGeneration = 0; this.refs = null; this.hostedRemotes = [];
     this.details = null; this.pending = nothing(); this.opening = false;
     this.operations = this.operations.catch(() => {}).then(() => invoke('close_repository'));
     await this.operations;
@@ -132,7 +133,12 @@ export class RepositoryBrowser {
           const generation = this.generation;
           await Promise.all([
             work.status ? invoke<StatusSummary>('repository_status', { generation }).then(status => { if (this.current(project, generation)) { this.status = status; this.statusGeneration = generation; this.statusRevision++; } }) : null,
-            work.refs ? invoke<References>('repository_refs', { generation }).then(refs => { if (this.current(project, generation)) this.refs = refs; }) : null,
+            work.refs ? invoke<References>('repository_refs', { generation }).then(async refs => {
+              if (!this.current(project, generation)) return;
+              this.refs = refs;
+              const hosted = await invoke<HostedRemote[]>('hosting_remotes', { generation });
+              if (this.current(project, generation)) this.hostedRemotes = hosted;
+            }) : null,
           ]);
         } catch (error) { if (project === this.project) this.report(error); }
       }

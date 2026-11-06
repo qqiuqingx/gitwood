@@ -1,11 +1,12 @@
 export interface RepoPath { bytes: number[]; display: string }
-export interface CurrentFileSelection { path: RepoPath; revision: string; source: 'changes' | 'commit'; versioned: boolean; untracked: boolean; conflicted: boolean }
+export interface CurrentFileSelection { path: RepoPath; revision: string; source: 'changes' | 'commit'; versioned: boolean; untracked: boolean; conflicted: boolean; regularFile?: boolean }
 export interface NativeMenuActions { hasRepository: boolean; actions: Record<string, boolean> }
 export interface Branch { oid: string | null; head: string | null; upstream: string | null; ahead: number; behind: number }
 export interface Entry { path: RepoPath; original: RepoPath | null; xy: string; kind: string }
 export interface Status { branch: Branch; staged: Entry[]; unstaged: Entry[]; untracked: Entry[]; conflicts: Entry[] }
 export interface Reference { name: string; hash: string; peeled: string | null; upstream: string | null; track: string }
 export interface References { local: Reference[]; remotes: Record<string, Reference[]>; tags: Reference[]; remote_heads: Record<string, string>; head: Branch }
+export interface HostedRemote { name: string; platform: 'github' | 'gitlab' }
 export interface Commit { hash: string; parents: string[]; author: string; email: string; author_time: number; commit_time: number; subject: string; message: string; refs: string }
 export interface FileChange { status: string; path: RepoPath; original: RepoPath | null }
 export interface FilePage { total: number; start: number; files: FileChange[] }

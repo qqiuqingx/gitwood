@@ -21,6 +21,9 @@
   import type { RepositoryBrowser } from './browser.svelte';
   import { currentFileItems, type CurrentFileAction } from '../git/current-file-menu';
   import { currentFileText } from '../../i18n/current-file';
+  import { hostingMenuItems } from '../git/hosting-menu';
+  import { hostingHandlers, publishedHostingRemotes } from '../git/hosting-actions';
+  import { revealText } from '../../i18n/reveal';
   import { browseText as t } from '../../i18n/browse';
   let { browser, refresh, commitPush = () => {}, onfocuscommit = () => {}, oncurrentfile = () => {}, flat = $bindable(true), preview = $bindable(true) }: { browser: RepositoryBrowser; refresh: () => void; commitPush?: () => void; onfocuscommit?: () => void | Promise<void>; oncurrentfile?: (action: CurrentFileAction, path: import('./types').RepoPath, revision?: string) => void; flat?: boolean; preview?: boolean } = $props();
   let selectedFile = $state<FileRow>();
@@ -39,6 +42,7 @@
       versioned: row.status !== '?',
       untracked: row.status === '?',
       conflicted: row.conflicted,
+      regularFile: !row.hasChildren,
     } : null;
     if (preview) previewFile(row);
   }
@@ -79,6 +83,7 @@
     catch(error){browser.report(error);}
   }
   const actions=createActionRegistry();
+  const hosted = hostingHandlers(() => browser);
   const menuEnabled = (id: string) => browser.nativeMenuActions.actions[id] === true;
   export function runAction(id: string) { return actions.run(id); }
   actions.register('CheckinProject', { run: () => { void Promise.resolve(onfocuscommit()).then(() => tick()).then(() => messageBox?.focus()).catch(error => browser.report(error)); }, enabled: () => browser.nativeMenuActions.actions.CheckinProject === true });
@@ -92,6 +97,7 @@
   actions.register('ChangesView.AddUnversioned', { run: () => { if (contextRow?.path && browser.status?.fingerprint) void invoke('changes_add', { generation: browser.generation, paths: [contextRow.path], expected: browser.status.fingerprint }).then(() => browser.refresh({ status:true, refs:false, history:false })).catch(error => browser.report(error)); }, enabled: () => menuEnabled('ChangesView.AddUnversioned') });
   actions.register('ChangesView.Delete', { run: () => { if (contextRow?.path) deleteRow = contextRow; }, enabled: () => !!contextRow?.path && !session.busy });
   actions.register('ChangesView.Refresh', { run: () => refresh(), enabled: () => !session.busy });
+  actions.register('RevealIn', { run: () => { const path = contextRow?.path; if (path && !contextRow?.hasChildren) void invoke('reveal_workspace_file', { generation: browser.generation, path }).catch(error => browser.report(error)); }, enabled: () => !!contextRow?.path && !contextRow.hasChildren && !session.busy });
   function keyboard(event: KeyboardEvent) {
     if(event.key==='Escape' && history){event.preventDefault();history=false;messageBox.focus();return;}
     actions.dispatch(event,keymapFor(detectPlatform(navigator.platform)),event.target instanceof HTMLElement && !!event.target.closest('input,textarea,select'));
@@ -119,10 +125,11 @@
     const revert: PopupItem = { id:'context-rollback', label:c('rollback'), shortcut:shortcut.rollback, disabled:!canRollback || !canFile, run:()=>{ ids=[row!.id]; actions.run('ChangesView.Revert'); } };
     const add: PopupItem = { id:'context-add', label:t('addToVcs'), shortcut:shortcut.add, disabled:!canAdd, run:()=>actions.run('ChangesView.AddUnversioned') };
     return [commit, revert, { id:'context-diff', label:t('showDiffAction'), shortcut:shortcut.diff, disabled:!canFile || session.busy, run:()=>actions.run('Diff.ShowDiff') },
+      { id:'RevealIn', label:revealText(detectPlatform(navigator.platform)), disabled:!menuEnabled('RevealIn') || !canFile || !!row?.hasChildren || session.busy, run:()=>actions.run('RevealIn') },
       { id:'context-delete', label:t('delete'), disabled:!canFile || session.busy, run:()=>actions.run('ChangesView.Delete') }, add,
       { id:'context-refresh', label:t('refresh'), disabled:session.busy, run:()=>actions.run('ChangesView.Refresh') },
       { id:'context-separator', label:'', kind:'separator' },
-      { id:'context-git', label:t('gitSubmenu'), children:[commit, revert, add, { id:'context-current-file', label:currentFileText('menu'), children:currentFileItems(action => { if (row?.path) oncurrentfile(action, row.path); }, undefined, currentFileAvailability) }] }];
+      { id:'context-git', label:t('gitSubmenu'), children:[commit, revert, add, { id:'context-current-file', label:currentFileText('menu'), children:currentFileItems(action => { if (row?.path) oncurrentfile(action, row.path); }, undefined, currentFileAvailability, row?.path && browser.status?.branch.oid && browser.status.branch.oid !== '(initial)' ? hostingMenuItems(publishedHostingRemotes(browser), { kind: 'file', revision: browser.status.branch.oid, path: row.path }, hosted.open, hosted.copy) : []) }] }];
   });
 
   const ready = $derived(canCommit(session.message,session.count + (browser.status?.operation?.kind === 'merge' ? 1 : 0),session.amend,session.busy || !!browser.status?.conflicts || ['rebase','applyMailbox'].includes(browser.status?.operation?.kind ?? '')));

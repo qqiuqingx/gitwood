@@ -71,6 +71,17 @@ read-only repository operations through the same runner.
   No frontend theme loader or generic event emit permission is exposed. The application
   command manifest opts custom commands into ACL enforcement. No `core:default`,
   shell plugin, filesystem plugin, remote capability, or global Tauri object is enabled.
+  `tauri-plugin-opener` is called only from typed Rust commands; no `opener:*`
+  permission is granted to the WebView. Hosting commands accept a remote name and
+  structured target, re-read the repository's configured remote URL, discard URL
+  credentials, resolve the host from built-in or user-configured hostname entries,
+  verify the target against local remote-tracking refs, and generate only `https://`
+  links. They never accept a URL from the frontend and never make HTTP/API requests.
+  Repository files are only revealed in the system file manager after Rust resolves
+  a repository-relative path, canonicalizes it inside the worktree, and verifies it
+  is an existing regular file. The default application is never used to open
+  repository files. The theme directory command has no path parameter and opens
+  only the configured user theme directory after creating it.
 - Render repository messages, filenames, branch names, and other repository text
   as text. Never use `{@html}`, `innerHTML`, or repository-driven executable markup.
 - Devtools are disabled in the window configuration, including release builds;

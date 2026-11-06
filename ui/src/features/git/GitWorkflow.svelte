@@ -39,6 +39,9 @@
   import type { CurrentFileAction } from './current-file-menu';
   import type { RepoPath } from '../browse/types';
   import VcsOperationsPopup from './VcsOperationsPopup.svelte';
+  import { hostingHandlers, hostingRequestRemotes, publishedHostingRemotes } from './hosting-actions';
+  import type { HostingTarget } from './hosting-menu';
+  import { hostingText } from '../../i18n/hosting';
 
   let { browser, oncommitpush, onmenuaction = () => {}, onshowlog = () => {}, ontogglecommit = () => {} }: {
     browser: RepositoryBrowser; oncommitpush: () => void; onmenuaction?: (action: string) => void;
@@ -49,6 +52,7 @@
   let upstreamBranch = $state<string | null>(null);
   let historyTreeRevision = $state<string | null>(null);
   let currentFile = $state<{ action: CurrentFileAction; path: RepoPath; revision: string } | null>(null);
+  let hostingPending = $state<{ platform: 'github' | 'gitlab'; action: 'open' | 'copy' | 'create'; target: HostingTarget } | null>(null);
   let operationsOpen = $state(false);
   let operationsAnchor = $state({ x: 0, y: 0, width: 0, height: 0 });
   let historyChildren = $state<string[]>([]);
@@ -65,11 +69,12 @@
   let remoteTagRemote = $state('');
   $effect(() => {
     browser.project?.root;
-    untrack(() => { integration = null; comparison = null; upstreamBranch = null; historyTreeRevision = null; currentFile = null; historyChildren = []; });
+    untrack(() => { integration = null; comparison = null; upstreamBranch = null; historyTreeRevision = null; currentFile = null; historyChildren = []; hostingPending = null; });
   });
   const canIntegrate = () => integrationEnabled(browser.refs, browser.status?.operation, busy || browser.commit.busy || !!integration || !!comparison || upstreamBranch !== null, browser.status?.conflicts, browser.status?.update_stash);
   const integrationActions = ['merge', 'rebase', 'pull'] as const;
   const actions = createActionRegistry();
+  const hosted = hostingHandlers(() => browser);
   const menuEnabled = (id: string) => () => browser.nativeMenuActions.actions[id] === true;
   let currentFileTarget: { path: RepoPath; revision: string } | null = null;
   for (const [action, id] of [
@@ -124,6 +129,14 @@
   actions.register('Git.Rebase.Skip', { run: () => requestSequence('skip'), enabled: menuEnabled('Git.Rebase.Skip') });
   actions.register('Git.ResolveConflicts', { run: () => requestResolution(), enabled: menuEnabled('Git.ResolveConflicts') });
   actions.register('Vcs.QuickListPopupAction', { run: () => openVcsOperations(), enabled: menuEnabled('Vcs.QuickListPopupAction') });
+  for (const [id, platform, action] of [
+    ['Github.Open.In.Browser', 'github', 'open'], ['GitHub.Copy.Link', 'github', 'copy'], ['Github.Create.Pull.Request', 'github', 'create'],
+    ['GitLab.Open.In.Browser', 'gitlab', 'open'], ['GitLab.Copy.Link', 'gitlab', 'copy'], ['GitLab.Merge.Request.Create', 'gitlab', 'create'],
+  ] as const) actions.register(id, { run: () => openHosted(platform, action), enabled: menuEnabled(id) });
+  for (const [id, platform, action] of [
+    ['Git.CurrentFile.Github.Open', 'github', 'open'], ['Git.CurrentFile.Github.Copy', 'github', 'copy'],
+    ['Git.CurrentFile.GitLab.Open', 'gitlab', 'open'], ['Git.CurrentFile.GitLab.Copy', 'gitlab', 'copy'],
+  ] as const) actions.register(id, { run: () => openCurrentHosted(platform, action), enabled: menuEnabled(id) });
   $effect(() => { browser.workflowBusy = busy || !!integration || !!comparison || upstreamBranch !== null; });
   function canHistoryWrite() {
     return !!browser.refs?.head.head && browser.refs.head.head !== '(detached)' && !!browser.refs.head.oid && browser.refs.head.oid !== '(initial)' && !busy && !browser.commit.busy && !integration && !comparison && !upstreamBranch
@@ -158,6 +171,35 @@
     operationsAnchor = { x: (window.innerWidth - width) / 2, y: (window.innerHeight - height) / 2, width: 0, height: 0 };
     operationsOpen = true;
   }
+  function openHosted(platform: 'github' | 'gitlab', action: 'open' | 'copy' | 'create') {
+    const branch = current.replace(/^refs\/heads\//, '');
+    const upstream = browser.status?.branch.upstream ?? '';
+    const base = upstream.replace(/^refs\/remotes\/[^/]+\//, '');
+    const target: HostingTarget = action === 'create'
+      ? { kind: 'createRequest', base: base || undefined, head: branch }
+      : { kind: 'branch', branch };
+    const available = action === 'create' ? hostingRequestRemotes(browser) : publishedHostingRemotes(browser);
+    const candidates = available.filter(remote => remote.platform === platform);
+    if (candidates.length === 1) return dispatchHosted(candidates[0].name, action, target);
+    if (candidates.length > 1) hostingPending = { platform, action, target };
+  }
+  function openCurrentHosted(platform: 'github' | 'gitlab', action: 'open' | 'copy') {
+    const file = browser.currentFile;
+    const revision = file?.revision === 'HEAD' ? browser.status?.branch.oid : file?.revision;
+    if (!file || !revision || revision === '(initial)') return;
+    const target: HostingTarget = { kind: 'file', revision, path: file.path };
+    const candidates = publishedHostingRemotes(browser).filter(remote => remote.platform === platform);
+    if (candidates.length === 1) return dispatchHosted(candidates[0].name, action, target);
+    if (candidates.length > 1) hostingPending = { platform, action, target };
+  }
+  function dispatchHosted(remote: string, action: 'open' | 'copy' | 'create', target: HostingTarget) {
+    if (action === 'copy') hosted.copy(remote, target); else hosted.open(remote, target);
+    hostingPending = null;
+  }
+  const hostingPicker = $derived(hostingPending ? browser.hostedRemotes.filter(remote => remote.platform === hostingPending!.platform).map(remote => ({
+    id: `hosting-remote:${remote.name}`, label: remote.name,
+    run: () => dispatchHosted(remote.name, hostingPending!.action, hostingPending!.target),
+  })) : []);
   function dispatchHistoryAction(action: HistoryAction, hash: string, selected: string[]) {
     const id = registeredHistoryActions[action];
     if (!id) return;
@@ -601,6 +643,7 @@
 {/snippet}
 {#if popup && refs}<div class="branch-popup"><Popup items={branchItems} label={gitText('branches')} anchor={branchAnchor} onclose={() => { popup = false; }} /></div>{/if}
 {#if operationsOpen}<VcsOperationsPopup anchor={operationsAnchor} enabled={browser.nativeMenuActions.actions} onclose={() => { operationsOpen = false; }} onaction={onmenuaction} />{/if}
+{#if hostingPending}<Popup label={hostingText(hostingPending.platform)} anchor={{ x: window.innerWidth / 2, y: window.innerHeight / 2, width: 0, height: 0 }} items={hostingPicker} onclose={() => { hostingPending = null; }} />{/if}
 
 {#if dialog}
   <dialog bind:this={workflowDialog} class="workflow-dialog" class:push={dialog === 'push'} aria-labelledby="workflow-title"

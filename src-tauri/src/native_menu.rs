@@ -66,6 +66,12 @@ pub(crate) struct MenuLabels {
     compare_revision: String,
     compare_branch: String,
     vcs_operations: String,
+    github: String,
+    gitlab: String,
+    open_hosted: String,
+    copy_link: String,
+    create_pull_request: String,
+    create_merge_request: String,
 }
 
 impl MenuLabels {
@@ -139,6 +145,12 @@ impl MenuLabels {
             "compareRevision" => &self.compare_revision,
             "compareBranch" => &self.compare_branch,
             "vcsOperations" => &self.vcs_operations,
+            "github" => &self.github,
+            "gitlab" => &self.gitlab,
+            "openHosted" => &self.open_hosted,
+            "copyLink" => &self.copy_link,
+            "createPullRequest" => &self.create_pull_request,
+            "createMergeRequest" => &self.create_merge_request,
             _ => unreachable!("unknown Git menu label key: {key}"),
         }
     }

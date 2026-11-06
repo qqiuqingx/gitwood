@@ -78,6 +78,80 @@ fn clean_repository_enables_commit_read_and_remote_actions() {
 }
 
 #[test]
+fn hosting_actions_require_a_published_branch_and_a_recognized_host() {
+    let (status, refs) = base();
+    let github = calculate_actions(
+        Some(&status),
+        Some(&refs),
+        NativeMenuSelection {
+            hosting_github: true,
+            hosting_github_create: true,
+            ..NativeMenuSelection::default()
+        },
+    );
+    assert!(github.is_enabled("Github.Open.In.Browser"));
+    assert!(github.is_enabled("GitHub.Copy.Link"));
+    assert!(github.is_enabled("Github.Create.Pull.Request"));
+    assert!(!github.is_enabled("GitLab.Merge.Request.Create"));
+
+    let multiple = calculate_actions(
+        Some(&status),
+        Some(&refs),
+        NativeMenuSelection {
+            hosting_github: true,
+            hosting_gitlab: true,
+            hosting_github_create: true,
+            hosting_gitlab_create: true,
+            ..NativeMenuSelection::default()
+        },
+    );
+    for action in [
+        "Github.Open.In.Browser",
+        "GitLab.Open.In.Browser",
+        "Github.Create.Pull.Request",
+        "GitLab.Merge.Request.Create",
+    ] {
+        assert!(multiple.is_enabled(action), "{action}");
+    }
+
+    let unknown = calculate_actions(Some(&status), Some(&refs), NativeMenuSelection::default());
+    assert!(!unknown.is_enabled("Github.Open.In.Browser"));
+    let mut unpushed = status.clone();
+    unpushed.has_upstream = false;
+    assert!(!calculate_actions(
+        Some(&unpushed),
+        Some(&refs),
+        NativeMenuSelection {
+            hosting_github: true,
+            ..NativeMenuSelection::default()
+        }
+    )
+    .is_enabled("Github.Create.Pull.Request"));
+    let mut detached = status.clone();
+    detached.attached = false;
+    assert!(!calculate_actions(
+        Some(&detached),
+        Some(&refs),
+        NativeMenuSelection {
+            hosting_github: true,
+            ..NativeMenuSelection::default()
+        }
+    )
+    .is_enabled("Github.Open.In.Browser"));
+    let mut unborn = status;
+    unborn.has_head = false;
+    assert!(!calculate_actions(
+        Some(&unborn),
+        Some(&refs),
+        NativeMenuSelection {
+            hosting_github: true,
+            ..NativeMenuSelection::default()
+        }
+    )
+    .is_enabled("Github.Open.In.Browser"));
+}
+
+#[test]
 fn local_changes_enable_commit_stash_and_selected_change_actions() {
     let (mut status, refs) = base();
     status.changes = 2;
@@ -88,6 +162,7 @@ fn local_changes_enable_commit_stash_and_selected_change_actions() {
             versioned: false,
             untracked: true,
             conflicted: false,
+            regular_file: true,
         }),
         selected_change_count: 1,
         ..NativeMenuSelection::default()
@@ -196,6 +271,7 @@ fn current_file_actions_follow_file_kind_and_selected_commit() {
             versioned: true,
             untracked: false,
             conflicted: false,
+            regular_file: true,
         }),
         selected_commit_count: 1,
         ..NativeMenuSelection::default()
@@ -205,6 +281,7 @@ fn current_file_actions_follow_file_kind_and_selected_commit() {
     assert!(actions.is_enabled("Git.CurrentFile.Annotate"));
     assert!(actions.is_enabled("Git.CurrentFile.CompareRevision"));
     assert!(actions.is_enabled("Git.CurrentFile.CompareBranch"));
+    assert!(actions.is_enabled("RevealIn"));
     assert!(actions.is_enabled("Git.Reset"));
 
     let conflict = NativeMenuSelection {

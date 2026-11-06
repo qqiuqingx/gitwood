@@ -13,6 +13,8 @@
   import { placeholder } from './browser.svelte';
   import { historyMenuText } from '../../i18n/history-menu';
   import { formatDate, refLabelsByHash } from './model';
+  import { hostingMenuItems } from '../git/hosting-menu';
+  import { hostingHandlers, publishedHostingRemotes } from '../git/hosting-actions';
   import { browseText as t, prettyDateWords } from '../../i18n/browse';
   import type { RepositoryBrowser } from './browser.svelte';
   let { browser, handlers }: { browser: RepositoryBrowser; handlers?: BranchPopupHandlers } = $props();
@@ -23,12 +25,15 @@
   const contextItems = $derived.by(() => {
     const commit = context?.commit;
     const count = context?.selection.length ?? 0;
-    return commit ? forSelection(historyMenuItems(commit, browser.refs, handlers, parentAvailable,
+    if (!commit) return [];
+    const hosted = hostingHandlers(() => browser);
+    const extraHosting = hostingMenuItems(publishedHostingRemotes(browser), { kind: 'commit', revision: commit.hash }, hosted.open, hosted.copy);
+    return forSelection(historyMenuItems(commit, browser.refs, handlers, parentAvailable,
       { copy: () => { void copyRevision(count > 1 ? context!.selection.join(' ') : commit.hash); },
         parent: () => { if (commit.parents[0]) void browser.goToCommit(commit.parents[0]); },
         run: (action, hash) => handlers?.historyAction?.(action, hash, count > 1 ? context!.selection : [hash]) }, historyMenuText,
       { info: undoInfo, busy: browser.commit.busy, writable: !!undoInfo && (!undoInfo.operation || undoInfo.operation.kind === 'bisect') && (handlers?.canHistoryWrite?.() ?? (!!browser.refs?.head.head && browser.refs.head.head !== '(detached)' && !!browser.refs.head.oid && browser.refs.head.oid !== '(initial)' && !browser.status?.operation && !browser.status?.conflicts && !browser.status?.update_stash && !browser.commit.busy)), applyAllowed: handlers?.canHistoryApply?.() ?? (!!browser.status && browser.status.staged === 0),
-        run: () => { void browser.undoCommit(commit.hash); } }, Math.max(count, 1), selectionHasMerge), count) : [];
+        run: () => { void browser.undoCommit(commit.hash); } }, Math.max(count, 1), selectionHasMerge, extraHosting), count);
   });
   /** Log order where rows are loaded (IDEA copies in table order); others keep selection order. */
   function orderedSelection() {

@@ -10,6 +10,8 @@ const en = {
   commitFile: 'Commit File…', addToVcs: 'Add to VCS', showHistory: 'Show History',
   annotate: 'Annotate', compareRevision: 'Compare with Revision…', compareBranch: 'Compare with Branch…',
   vcsOperations: 'VCS Operations Popup', vcsOperationsTitle: 'VCS Operations', gitGroup: 'Git',
+  github: 'GitHub', gitlab: 'GitLab', openHosted: 'Open in Browser', copyLink: 'Copy Link',
+  createPullRequest: 'Create Pull Request…', createMergeRequest: 'Create Merge Request…',
   resolveConflicts: 'Resolve Conflicts', toggleCommitUi: 'Toggle Commit UI',
 } as const;
 
@@ -24,6 +26,8 @@ const zh: Messages = {
   commitFile: '提交文件…', addToVcs: '添加到版本控制', showHistory: '显示历史记录',
   annotate: '注释', compareRevision: '与修订比较…', compareBranch: '与分支比较…',
   vcsOperations: 'VCS 操作弹窗', vcsOperationsTitle: 'VCS 操作', gitGroup: 'Git',
+  github: 'GitHub', gitlab: 'GitLab', openHosted: '在浏览器中打开', copyLink: '复制链接',
+  createPullRequest: '创建拉取请求…', createMergeRequest: '创建合并请求…',
   resolveConflicts: '解决冲突', toggleCommitUi: '切换提交窗口',
 };
 
@@ -32,7 +36,8 @@ export type NativeMenuLabels = Record<
   'commitAction' | 'push' | 'update' | 'pull' | 'fetch' | 'merge' | 'commitMerge' | 'abortMerge'
   | 'rebase' | 'continueRebase' | 'abortRebase' | 'skipCommit' | 'branches' | 'newBranch' | 'newTag'
   | 'resetHead' | 'showGitLog' | 'uncommittedChanges' | 'stash' | 'unstash' | 'rollback' | 'currentFile'
-  | 'commitFile' | 'addToVcs' | 'showHistory' | 'annotate' | 'compareRevision' | 'compareBranch' | 'vcsOperations', string>;
+  | 'commitFile' | 'addToVcs' | 'showHistory' | 'annotate' | 'compareRevision' | 'compareBranch' | 'vcsOperations'
+  | 'github' | 'gitlab' | 'openHosted' | 'copyLink' | 'createPullRequest' | 'createMergeRequest', string>;
 
 export function nativeMenuText(key: NativeMenuMessage, language = typeof navigator === 'undefined' ? 'en' : navigator.language): string {
   return (detectLocale(language) === 'zh-CN' ? zh : en)[key];
@@ -49,6 +54,8 @@ export function nativeMenuLabels(language = typeof navigator === 'undefined' ? '
     stash: labels.stash, unstash: labels.unstash, rollback: labels.rollback, currentFile: labels.currentFile,
     commitFile: labels.commitFile, addToVcs: labels.addToVcs, showHistory: labels.showHistory,
     annotate: labels.annotate, compareRevision: labels.compareRevision, compareBranch: labels.compareBranch,
-    vcsOperations: labels.vcsOperations,
+    vcsOperations: labels.vcsOperations, github: labels.github, gitlab: labels.gitlab,
+    openHosted: labels.openHosted, copyLink: labels.copyLink,
+    createPullRequest: labels.createPullRequest, createMergeRequest: labels.createMergeRequest,
   };
 }

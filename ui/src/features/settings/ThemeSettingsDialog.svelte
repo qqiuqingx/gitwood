@@ -23,6 +23,9 @@
   let systemDark = $state(false);
   let hasPreview = $state(false);
   let explicitSelection = $state(false);
+  let githubHosts = $state('');
+  let gitlabHosts = $state('');
+  let hostsSaved = $state(false);
   let warningList = $derived(catalog ? contrastWarnings(selected, catalog.themes, systemDark) : []);
   let errorList = $derived(catalog ? errorRows(catalog.errors) : []);
   let savedChoiceUnavailable = $derived(catalog ? currentTheme.startsWith('user:') && !themeAvailable(currentTheme, catalog.themes) : false);
@@ -57,6 +60,9 @@
       });
     }).then(stop => { if (disposed) stop(); else unlistenPreferences = stop; });
     void loadCatalog();
+    void invoke<{ github: string[]; gitlab: string[] }>('get_hosting_hosts').then(value => {
+      githubHosts = value.github.join('\n'); gitlabHosts = value.gitlab.join('\n');
+    }).catch(cause => { error = String(cause); });
     return () => { disposed = true; unlistenCatalog?.(); unlistenPreferences?.(); system.removeEventListener('change', systemChanged); };
   });
 
@@ -116,6 +122,20 @@
     catch { copyFailed = true; }
   }
 
+  async function openDirectory() {
+    try { await invoke('open_theme_directory'); }
+    catch { error = t('themeDirectoryOpenFailed'); }
+  }
+
+  async function saveHosts() {
+    hostsSaved = false;
+    const values = (source: string) => source.split(/[\r\n]+/).map(host => host.trim()).filter(Boolean);
+    try {
+      await invoke('update_hosting_hosts', { hosts: { github: values(githubHosts), gitlab: values(gitlabHosts) } });
+      hostsSaved = true;
+    } catch (cause) { error = String(cause); }
+  }
+
   function label(theme: ThemeDescriptor): string {
     if (!theme.builtIn) return theme.name;
     if (theme.id === 'light' || theme.id === 'dark' || theme.id === 'walnut') return t(theme.id);
@@ -143,8 +163,16 @@
       <h3>{t('themeDirectory')}</h3>
       <code>{catalog.directory}</code>
       <button type="button" onclick={() => void copyDirectory()}>{t('copyPath')}</button>
+      <button type="button" onclick={() => void openDirectory()}>{t('openThemeDirectory')}</button>
       {#if copied}<span role="status">{t('pathCopied')}</span>{/if}
       {#if copyFailed}<span role="alert">{t('themeCopyFailed')}</span>{/if}
+    </section>
+    <section class="hosting-hosts">
+      <h3>{t('hostingSettings')}</h3><p class="hint">{t('hostingHostsHelp')}</p>
+      <label>{t('githubHosts')}<textarea bind:value={githubHosts} rows="3"></textarea></label>
+      <label>{t('gitlabHosts')}<textarea bind:value={gitlabHosts} rows="3"></textarea></label>
+      <button type="button" onclick={() => void saveHosts()}>{t('saveHosts')}</button>
+      {#if hostsSaved}<span role="status">{t('hostsSaved')}</span>{/if}
     </section>
     <section>
       <h3>{t('contrastWarnings')}</h3>
@@ -176,6 +204,8 @@
   dialog { width: min(620px, 88vw); max-height: 86vh; overflow: auto; color: var(--text-primary); background: var(--popup-bg); border: var(--border-width) solid var(--popup-border); padding: var(--space-panel-x); }
   fieldset { border: var(--border-width) solid var(--separator); padding: var(--space-panel-x); }
   .options { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-panel-y) var(--space-inline); }
+  .hosting-hosts label { display: grid; gap: var(--space-panel-y); margin-block: var(--space-panel-y); }
+  .hosting-hosts textarea { color: var(--text-primary); background: var(--input-bg); border: var(--border-width) solid var(--input-border); padding: var(--space-panel-y); font: inherit; resize: vertical; }
   label { display: flex; align-items: center; gap: var(--space-panel-y); min-width: 0; padding: var(--space-panel-y); border-radius: 4px; }
   label:has(input:checked) { background: var(--selection-bg); color: var(--selection-fg); }
   label small { margin-left: auto; color: var(--text-secondary); }

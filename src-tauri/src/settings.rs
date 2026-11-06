@@ -157,6 +157,27 @@ pub struct Settings {
     pub recent_repositories: Vec<RecentRepository>,
     pub cherry_pick_add_suffix_to_published_commits: bool,
     pub empty_cherry_pick: gitwood_core::ops::history::EmptyCherryPick,
+    pub hosting_hosts: HostingHosts,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(default, rename_all = "camelCase")]
+pub struct HostingHosts {
+    pub github: Vec<String>,
+    pub gitlab: Vec<String>,
+}
+
+impl HostingHosts {
+    pub fn validate(&self) -> Result<(), String> {
+        for host in self.github.iter().chain(&self.gitlab) {
+            if !gitwood_core::hosting::validate_host(host) {
+                return Err(
+                    "Hosting hosts must be a hostname with an optional numeric port".into(),
+                );
+            }
+        }
+        Ok(())
+    }
 }
 impl Default for Settings {
     fn default() -> Self {
@@ -168,6 +189,7 @@ impl Default for Settings {
             recent_repositories: Vec::new(),
             cherry_pick_add_suffix_to_published_commits: true,
             empty_cherry_pick: gitwood_core::ops::history::EmptyCherryPick::Skip,
+            hosting_hosts: HostingHosts::default(),
         }
     }
 }
@@ -178,6 +200,14 @@ pub fn decode(json: &str) -> Result<Settings, String> {
     let document: serde_json::Value = serde_json::from_str(json).map_err(|e| e.to_string())?;
     if document["schemaVersion"].as_u64() != Some(1) {
         return Err("Unsupported settings schemaVersion".into());
+    }
+    value.hosting_hosts.validate()?;
+    for hosts in [
+        &mut value.hosting_hosts.github,
+        &mut value.hosting_hosts.gitlab,
+    ] {
+        let mut seen = std::collections::HashSet::new();
+        hosts.retain(|host| seen.insert(host.to_ascii_lowercase()));
     }
     value.layout.ratios.normalize();
     let mut seen = std::collections::HashSet::new();
@@ -389,6 +419,10 @@ mod tests {
             }),
             cherry_pick_add_suffix_to_published_commits: false,
             empty_cherry_pick: gitwood_core::ops::history::EmptyCherryPick::CreateEmpty,
+            hosting_hosts: HostingHosts {
+                github: vec!["github.corp:8443".into()],
+                gitlab: vec!["gitlab.internal".into()],
+            },
             ..Settings::default()
         };
         assert_eq!(
@@ -496,6 +530,25 @@ mod tests {
         .unwrap();
         assert_eq!(value.layout.ratios.commit_diff, 0.22);
         assert_eq!(value.layout.ratios.workspace_log, 0.7);
+    }
+
+    #[test]
+    fn configured_hosting_hosts_validate_and_persist() {
+        let hosts = HostingHosts {
+            github: vec!["github.corp:8443".into()],
+            gitlab: vec!["gitlab.internal".into()],
+        };
+        hosts.validate().unwrap();
+        let settings = Settings {
+            hosting_hosts: hosts.clone(),
+            ..Settings::default()
+        };
+        let saved = serde_json::to_string(&settings).unwrap();
+        assert_eq!(decode(&saved).unwrap().hosting_hosts, hosts);
+        assert!(decode(
+            r#"{"schemaVersion":1,"hostingHosts":{"github":["https://evil.example"]}}"#
+        )
+        .is_err());
     }
     #[test]
     fn removed_monitor_and_shrunken_work_area_fit_visible_display() {

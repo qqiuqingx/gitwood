@@ -17,6 +17,9 @@ pub enum ReadOperation {
     CatFile,
     CheckRefFormat,
     RemoteNames,
+    RemoteUrl,
+    HostingContains,
+    HostingRef,
     MergeBase,
     StashShow,
     StashList,
@@ -38,6 +41,8 @@ impl ReadOperation {
             Self::CatFile => "cat-file",
             Self::CheckRefFormat => "check-ref-format",
             Self::RemoteNames => "remote",
+            Self::RemoteUrl => "remote",
+            Self::HostingContains | Self::HostingRef => "for-each-ref",
             Self::MergeBase => "merge-base",
             Self::StashShow => "stash",
             Self::StashList => "stash",
@@ -191,6 +196,18 @@ fn validate_read(read: &ReadCommand) -> Result<(), GitError> {
             "remote names read accepts no arguments".into(),
         ));
     }
+    if matches!(read.operation, ReadOperation::RemoteUrl) {
+        let args: Vec<_> = read.args.iter().map(|arg| arg.to_string_lossy()).collect();
+        if args.len() != 2 || args[0] != "get-url" || !valid_remote_name(&args[1]) {
+            return Err(GitError::InvalidCommand("invalid remote URL lookup".into()));
+        }
+    }
+    if matches!(read.operation, ReadOperation::HostingContains) {
+        return validate_hosting_contains(read);
+    }
+    if matches!(read.operation, ReadOperation::HostingRef) {
+        return validate_hosting_ref(read);
+    }
     let mut format_value = false;
     for arg in read.args.iter().take_while(|a| *a != "--") {
         let arg = arg.to_string_lossy();
@@ -251,6 +268,87 @@ fn validate_read(read: &ReadCommand) -> Result<(), GitError> {
     Ok(())
 }
 
+fn valid_remote_name(name: &str) -> bool {
+    !name.is_empty()
+        && name.len() <= 128
+        && !name.starts_with('-')
+        && !name.starts_with('.')
+        && !name.ends_with('.')
+        && !name.contains("..")
+        && name
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'-' | b'.'))
+}
+
+fn validate_hosting_contains(read: &ReadCommand) -> Result<(), GitError> {
+    let args: Vec<_> = read.args.iter().map(|arg| arg.to_string_lossy()).collect();
+    if args.len() != 4
+        || args[0] != "--count=1"
+        || args[1] != "--format=%(refname)"
+        || !args[2]
+            .strip_prefix("--contains=")
+            .is_some_and(valid_object_id)
+        || !valid_remote_prefix(&args[3])
+    {
+        return Err(GitError::InvalidCommand(
+            "invalid published revision lookup".into(),
+        ));
+    }
+    Ok(())
+}
+
+fn validate_hosting_ref(read: &ReadCommand) -> Result<(), GitError> {
+    let args: Vec<_> = read.args.iter().map(|arg| arg.to_string_lossy()).collect();
+    if args.len() != 3
+        || args[0] != "--count=1"
+        || args[1] != "--format=%(objectname)"
+        || !valid_hosting_refname(&args[2])
+    {
+        return Err(GitError::InvalidCommand(
+            "invalid hosting ref lookup".into(),
+        ));
+    }
+    Ok(())
+}
+
+fn valid_remote_prefix(value: &str) -> bool {
+    value
+        .strip_prefix("refs/remotes/")
+        .and_then(|rest| rest.strip_suffix('/'))
+        .is_some_and(valid_remote_name)
+}
+
+fn valid_hosting_refname(value: &str) -> bool {
+    if let Some(branch) = value.strip_prefix("refs/heads/") {
+        return valid_branch_name(branch);
+    }
+    let Some((remote, branch)) = value
+        .strip_prefix("refs/remotes/")
+        .and_then(|rest| rest.split_once('/'))
+    else {
+        return false;
+    };
+    valid_remote_name(remote) && valid_branch_name(branch)
+}
+
+fn valid_branch_name(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= 1024
+        && !value.contains("..")
+        && !value.contains("@{")
+        && !value.ends_with('.')
+        && !value
+            .chars()
+            .any(|ch| ch.is_control() || ch.is_whitespace() || "~^:?*[\\".contains(ch))
+        && value.split('/').all(|part| {
+            !part.is_empty() && !part.starts_with('.') && !part.ends_with(".lock") && part != "@"
+        })
+}
+
+fn valid_object_id(value: &str) -> bool {
+    [40, 64].contains(&value.len()) && value.bytes().all(|byte| byte.is_ascii_hexdigit())
+}
+
 fn safe_format(value: &str) -> bool {
     // Named repository pretty aliases can hide signature placeholders. Only exact
     // builtins or inline formats are accepted. Include Git's whitespace modifiers.
@@ -305,6 +403,68 @@ impl RunOptions {
             heartbeat_interval: std::time::Duration::from_secs(15),
             progress: None,
             askpass: None,
+        }
+    }
+}
+
+#[cfg(test)]
+mod hosting_read_tests {
+    use super::{GitCommand, ReadCommand, ReadOperation};
+
+    #[test]
+    fn hosting_ref_reads_are_fixed_and_revision_cannot_become_an_option() {
+        let revision = "a".repeat(40);
+        let contains = format!("--contains={revision}");
+        let command = ReadCommand::new(ReadOperation::HostingContains).args([
+            "--count=1",
+            "--format=%(refname)",
+            contains.as_str(),
+            "refs/remotes/origin/",
+        ]);
+        let args = GitCommand::from(command).arguments().unwrap();
+        let tail: Vec<String> = args[args.len() - 5..]
+            .iter()
+            .map(|value| value.to_string_lossy().into_owned())
+            .collect();
+        assert_eq!(
+            tail,
+            vec![
+                "for-each-ref".to_owned(),
+                "--count=1".to_owned(),
+                "--format=%(refname)".to_owned(),
+                contains,
+                "refs/remotes/origin/".to_owned(),
+            ]
+        );
+
+        let invalid = ReadCommand::new(ReadOperation::HostingContains).args([
+            "--count=1",
+            "--format=%(refname)",
+            "--contains=--help",
+            "refs/remotes/origin/",
+        ]);
+        assert!(GitCommand::from(invalid).arguments().is_err());
+    }
+
+    #[test]
+    fn hosting_ref_lookup_rejects_patterns_and_path_injection() {
+        let valid = ReadCommand::new(ReadOperation::HostingRef).args([
+            "--count=1",
+            "--format=%(objectname)",
+            "refs/remotes/origin/release/one",
+        ]);
+        assert!(GitCommand::from(valid).arguments().is_ok());
+        for value in [
+            "refs/remotes/origin/*",
+            "refs/remotes/origin/../other",
+            "refs/remotes/-origin/main",
+        ] {
+            let read = ReadCommand::new(ReadOperation::HostingRef).args([
+                "--count=1",
+                "--format=%(objectname)",
+                value,
+            ]);
+            assert!(GitCommand::from(read).arguments().is_err(), "{value}");
         }
     }
 }

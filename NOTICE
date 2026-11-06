@@ -6,6 +6,7 @@ Licensed under the Apache License, Version 2.0. See LICENSE.
 Third-party dependencies
 ------------------------
 Tauri / tauri-build / @tauri-apps/api / @tauri-apps/cli: MIT OR Apache-2.0.
+Tauri plugins (tauri-plugin-dialog / tauri-plugin-opener): MIT OR Apache-2.0.
 Svelte / @sveltejs/vite-plugin-svelte / svelte-check: MIT.
 Vite / Vitest / pnpm: MIT.
 TypeScript: Apache-2.0. Node.js type definitions: MIT.

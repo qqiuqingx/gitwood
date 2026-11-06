@@ -17,6 +17,7 @@ pub(crate) struct NativeFileSelection {
     pub versioned: bool,
     pub untracked: bool,
     pub conflicted: bool,
+    pub regular_file: bool,
 }
 
 #[derive(Clone, Copy, Default, Deserialize, PartialEq, Eq)]
@@ -26,6 +27,10 @@ pub(crate) struct NativeMenuSelection {
     pub selected_change_count: usize,
     pub selected_commit_count: usize,
     pub busy: bool,
+    pub hosting_github: bool,
+    pub hosting_gitlab: bool,
+    pub hosting_github_create: bool,
+    pub hosting_gitlab_create: bool,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -210,9 +215,20 @@ fn disabled_actions() -> BTreeMap<String, bool> {
         "Git.CurrentFile.Annotate",
         "Git.CurrentFile.CompareRevision",
         "Git.CurrentFile.CompareBranch",
+        "Github.Open.In.Browser",
+        "GitHub.Copy.Link",
+        "Github.Create.Pull.Request",
+        "GitLab.Open.In.Browser",
+        "GitLab.Copy.Link",
+        "GitLab.Merge.Request.Create",
+        "Git.CurrentFile.Github.Open",
+        "Git.CurrentFile.Github.Copy",
+        "Git.CurrentFile.GitLab.Open",
+        "Git.CurrentFile.GitLab.Copy",
         "Git.ResolveConflicts",
         "ChangesView.ToggleCommitUi",
         "Vcs.QuickListPopupAction",
+        "RevealIn",
     ]
     .into_iter()
     .map(|id| (id.to_owned(), false))
@@ -262,6 +278,37 @@ fn set_remote_actions(
     );
     set(actions, "Git.Pull", can_integrate && has_remotes);
     set(actions, "Git.Fetch", has_repository && idle && has_remotes);
+    let published_branch = has_head && attached && idle;
+    set(
+        actions,
+        "Github.Open.In.Browser",
+        published_branch && selection.hosting_github,
+    );
+    set(
+        actions,
+        "GitHub.Copy.Link",
+        published_branch && selection.hosting_github,
+    );
+    set(
+        actions,
+        "Github.Create.Pull.Request",
+        published_branch && selection.hosting_github_create,
+    );
+    set(
+        actions,
+        "GitLab.Open.In.Browser",
+        published_branch && selection.hosting_gitlab,
+    );
+    set(
+        actions,
+        "GitLab.Copy.Link",
+        published_branch && selection.hosting_gitlab,
+    );
+    set(
+        actions,
+        "GitLab.Merge.Request.Create",
+        published_branch && selection.hosting_gitlab_create,
+    );
     set(actions, "Git.Merge", can_integrate);
     set(actions, "Git.Rebase", can_integrate);
 }
@@ -358,6 +405,7 @@ fn set_file_actions(
     let tracked = current_file.is_some_and(|file| file.versioned && !file.conflicted);
     let from_changes = current_file.is_some_and(|file| file.source == NativeFileSource::Changes);
     let untracked = current_file.is_some_and(|file| file.untracked && !file.conflicted);
+    let regular_file = current_file.is_some_and(|file| file.regular_file);
     set(
         actions,
         "ChangesView.Revert",
@@ -374,8 +422,34 @@ fn set_file_actions(
         "ChangesView.AddUnversioned",
         idle && from_changes && untracked,
     );
+    set(
+        actions,
+        "RevealIn",
+        idle && from_changes && regular_file && !current_file.is_some_and(|file| file.conflicted),
+    );
     let can_use = idle && tracked && has_head;
     set(actions, "Git.CurrentFile.ShowHistory", can_use);
+    let can_host_current_file = can_use && current_file.is_some_and(|file| file.regular_file);
+    set(
+        actions,
+        "Git.CurrentFile.Github.Open",
+        can_host_current_file && selection.hosting_github,
+    );
+    set(
+        actions,
+        "Git.CurrentFile.Github.Copy",
+        can_host_current_file && selection.hosting_github,
+    );
+    set(
+        actions,
+        "Git.CurrentFile.GitLab.Open",
+        can_host_current_file && selection.hosting_gitlab,
+    );
+    set(
+        actions,
+        "Git.CurrentFile.GitLab.Copy",
+        can_host_current_file && selection.hosting_gitlab,
+    );
     set(actions, "Git.CurrentFile.Annotate", can_use);
     set(
         actions,

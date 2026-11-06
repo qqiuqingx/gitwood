@@ -109,6 +109,10 @@ impl ThemeRegistry {
             errors: catalog.errors,
         }
     }
+
+    pub fn directory(&self) -> PathBuf {
+        self.directory.clone()
+    }
 }
 
 fn unavailable_theme(id: &str, fallback_name: &str) -> Theme {

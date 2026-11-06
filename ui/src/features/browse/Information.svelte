@@ -10,12 +10,15 @@
   import type { Rect } from '../../components/popup';
   import { currentFileItems, type CurrentFileAction } from '../git/current-file-menu';
   import { currentFileText } from '../../i18n/current-file';
+  import { hostingMenuItems } from '../git/hosting-menu';
+  import { hostingHandlers, publishedHostingRemotes } from '../git/hosting-actions';
   let { browser, ratio = $bindable(0.6), label, oncurrentfile = () => {} }: { browser: RepositoryBrowser; ratio?: number; label: string; oncurrentfile?: (action: CurrentFileAction, path: import('./types').RepoPath, revision?: string) => void } = $props();
   let branches = $state<{ branches: string[]; total: number } | null>(null);
   let expanded = $state(false);
   // IDEA expands every node of the commit changes tree for each newly selected commit.
   let files = $state<ReadonlySet<string>>(new Set(['*']));
   let context = $state<{ anchor: Rect; path: import('./types').RepoPath; revision: string } | null>(null);
+  const hosted = hostingHandlers(() => browser);
   const contextItems = $derived.by(() => {
     const target = context;
     const enabled = {
@@ -24,7 +27,7 @@
       compareRevision: browser.nativeMenuActions.actions['Git.CurrentFile.CompareRevision'] === true,
       compareBranch: browser.nativeMenuActions.actions['Git.CurrentFile.CompareBranch'] === true,
     };
-    return target ? [{ id: 'current-file', label: currentFileText('menu'), children: currentFileItems(action => oncurrentfile(action, target.path, target.revision), undefined, enabled) }] : [];
+    return target ? [{ id: 'current-file', label: currentFileText('menu'), children: currentFileItems(action => oncurrentfile(action, target.path, target.revision), undefined, enabled, hostingMenuItems(publishedHostingRemotes(browser), { kind: 'file', revision: target.revision, path: target.path }, hosted.open, hosted.copy)) }] : [];
   });
   $effect.pre(() => { void browser.selected; files = new Set(['*']); if (browser.currentFile?.source === 'commit') browser.currentFile = null; });
   const labels = $derived(browser.details ? refLabelsByHash(browser.refs).get(browser.details.hash) ?? [] : []);
@@ -42,7 +45,7 @@
 </script>
 <Splitter axis="y" {label} minFirst={90} minSecond={90} bind:ratio>
   {#snippet first()}
-    <PagedFileTree onselect={row => { if (row.path && browser.selected) { browser.currentFile = { path: row.path, revision: browser.selected, source: 'commit', versioned: true, untracked: false, conflicted: false }; browser.previewFile = { path: row.path, staged: row.staged, unstaged: row.unstaged, hash: browser.selected }; } }} oncontextmenu={(event,row) => { if (!row.path || !browser.selected) return; event.preventDefault(); browser.currentFile = { path: row.path, revision: browser.selected, source: 'commit', versioned: true, untracked: false, conflicted: false }; context = { anchor: { x: event.clientX, y: event.clientY, width: 0, height: 0 }, path: row.path, revision: browser.selected }; }} hash={browser.selected} root={browser.project ? projectName(browser.project.root) : ''} bind:expanded={files} generation={browser.generation} onerror={error => browser.report(error)} />
+    <PagedFileTree onselect={row => { if (row.path && browser.selected) { browser.currentFile = { path: row.path, revision: browser.selected, source: 'commit', versioned: true, untracked: false, conflicted: false, regularFile: !row.hasChildren }; browser.previewFile = { path: row.path, staged: row.staged, unstaged: row.unstaged, hash: browser.selected }; } }} oncontextmenu={(event,row) => { if (!row.path || !browser.selected) return; event.preventDefault(); browser.currentFile = { path: row.path, revision: browser.selected, source: 'commit', versioned: true, untracked: false, conflicted: false, regularFile: !row.hasChildren }; context = { anchor: { x: event.clientX, y: event.clientY, width: 0, height: 0 }, path: row.path, revision: browser.selected }; }} hash={browser.selected} root={browser.project ? projectName(browser.project.root) : ''} bind:expanded={files} generation={browser.generation} onerror={error => browser.report(error)} />
   {/snippet}
   {#snippet second()}
     <div class="details">

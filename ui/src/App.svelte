@@ -64,6 +64,7 @@
   import ThemeSettingsDialog from './features/settings/ThemeSettingsDialog.svelte';
   import { historyMenuText } from './i18n/history-menu';
   import { nativeMenuLabels } from './i18n/native-menu';
+  import { hostingRequestRemotes, publishedHostingRemotes } from './features/git/hosting-actions';
 
   type EmptyCherryPick = 'skip' | 'createEmpty';
   interface Settings { theme: ThemeChoice; layout: Layout; cherryPickAddSuffixToPublishedCommits: boolean; emptyCherryPick: EmptyCherryPick }
@@ -129,11 +130,17 @@
   $effect(() => {
     if (!browseReady || !browser.project || !browser.generation || !isTauri()) return;
     const file = browser.currentFile;
+    const publishedHosts = publishedHostingRemotes(browser);
+    const requestHosts = hostingRequestRemotes(browser);
     const selection = {
-      currentFile: file ? { source: file.source, versioned: file.versioned, untracked: file.untracked, conflicted: file.conflicted } : null,
+      currentFile: file ? { source: file.source, versioned: file.versioned, untracked: file.untracked, conflicted: file.conflicted, regularFile: file.regularFile !== false } : null,
       selectedChangeCount: browser.selectedChangeCount,
       selectedCommitCount: browser.selection.size || (browser.selected ? 1 : 0),
       busy: browser.workflowBusy || browser.commit.busy || browser.opening || projects.busy,
+      hostingGithub: publishedHosts.some(remote => remote.platform === 'github'),
+      hostingGitlab: publishedHosts.some(remote => remote.platform === 'gitlab'),
+      hostingGithubCreate: requestHosts.some(remote => remote.platform === 'github'),
+      hostingGitlabCreate: requestHosts.some(remote => remote.platform === 'gitlab'),
     };
     const signature = JSON.stringify({
       generation: browser.generation,
@@ -146,6 +153,7 @@
         local: browser.refs.local.map(ref => [ref.name, ref.hash]),
         remotes: Object.entries(browser.refs.remotes).map(([name, refs]) => [name, refs.map(ref => [ref.name, ref.hash])]),
       },
+      hostedRemotes: browser.hostedRemotes,
       selectedFile: file && [file.path.bytes, file.revision, file.source],
       selected: browser.selected,
       selection: [...browser.selection].sort(),
@@ -172,6 +180,7 @@
     let unlistenExit: (() => void) | undefined;
     let unlistenThemeCatalog: (() => void) | undefined;
     let unlistenOpenThemes: (() => void) | undefined;
+    let unlistenHosting: (() => void) | undefined;
     async function refreshTheme(force = false, apply = true) {
       const name = effectiveTheme(themeChoice, system.matches);
       if (name === active && !force) return;
@@ -212,6 +221,10 @@
       if (disposed) { unlisten(); unlistenThemeCatalog(); return; }
       unlistenOpenThemes = await listenWindowEvent('open-theme-settings', () => { themeDialogOpen = true; });
       if (disposed) { unlisten(); unlistenThemeCatalog(); unlistenOpenThemes(); return; }
+      unlistenHosting = await listenWindowEvent('hosting-hosts-changed', () => {
+        void browser.refresh({ status: false, refs: true, history: false });
+      });
+      if (disposed) { unlisten(); unlistenThemeCatalog(); unlistenOpenThemes(); unlistenHosting(); return; }
       unlistenError = await listen<string>('settings-error', ({ payload }) => { settingsError = payload; });
       if (disposed) { unlisten(); unlistenError(); return; }
       unlistenExit = await listenWindowEvent('save-before-exit', () => {
@@ -239,7 +252,7 @@
       browseReady = true;
     }
     initialize().catch((error) => { settingsError = String(error); });
-    return () => { disposed = true; generation++; refreshThemeAfterDialog = () => {}; unlisten?.(); unlistenError?.(); unlistenExit?.(); unlistenThemeCatalog?.(); unlistenOpenThemes?.(); system.removeEventListener('change', systemChanged); };
+    return () => { disposed = true; generation++; refreshThemeAfterDialog = () => {}; unlisten?.(); unlistenError?.(); unlistenExit?.(); unlistenThemeCatalog?.(); unlistenOpenThemes?.(); unlistenHosting?.(); system.removeEventListener('change', systemChanged); };
   });
   $effect(() => {
     if (!browseReady) return;

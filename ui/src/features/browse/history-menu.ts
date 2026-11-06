@@ -22,7 +22,7 @@ export function forSelection(items: PopupItem[], count: number): PopupItem[] {
 }
 
 export function historyMenuItems(commit: Commit, refs: References | null, handlers: BranchPopupHandlers | undefined,
-  parentAvailable: boolean, actions: { copy: () => void; parent: () => void; run?: (action: import('../git/model').HistoryAction, hash: string) => void }, t: (key: HistoryMenuMessage) => string, undo?: { info: UndoInfo | null; run: () => void; busy: boolean; writable?: boolean; applyAllowed?: boolean }, selectionCount = 1, selectionHasMerge: boolean | null = false): PopupItem[] {
+  parentAvailable: boolean, actions: { copy: () => void; parent: () => void; run?: (action: import('../git/model').HistoryAction, hash: string) => void }, t: (key: HistoryMenuMessage) => string, undo?: { info: UndoInfo | null; run: () => void; busy: boolean; writable?: boolean; applyAllowed?: boolean }, selectionCount = 1, selectionHasMerge: boolean | null = false, extraItems: PopupItem[] = []): PopupItem[] {
   const branches = refs && handlers ? [...refs.local, ...Object.values(refs.remotes).flat()].filter(ref => ref.hash === commit.hash).map(ref => branchItem(ref, refs, handlers)) : [];
   const checkout: PopupItem[] = branches.map(item => ({ ...item.children![0], id: `checkout:${item.id}`, label: item.label, children: undefined }));
   // ops/branch.rs validates Checkout against refs/heads; arbitrary revisions are unsupported.
@@ -52,5 +52,6 @@ export function historyMenuItems(commit: Commit, refs: References | null, handle
       { id: `delete-remote-tag:${ref.name}`, label: t('deleteRemoteTag').replace('{name}', ref.name.replace(/^refs\/tags\//, '')), disabled: !undo?.writable, run: () => actions.run?.('deleteRemoteTag', ref.name) },
     ])),
     separator('navigate'), { id: 'child', label: t('child'), disabled: !readable, run: () => actions.run?.('child', commit.hash) }, { id: 'parent', label: t('parent'), disabled: !commit.parents.length || !parentAvailable, run: actions.parent },
+    ...extraItems,
   ];
 }

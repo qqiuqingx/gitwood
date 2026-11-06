@@ -3,6 +3,7 @@
 pub mod diff;
 pub mod git;
 pub mod history;
+pub mod hosting;
 pub mod ops;
 pub mod repo;
 pub mod theme;

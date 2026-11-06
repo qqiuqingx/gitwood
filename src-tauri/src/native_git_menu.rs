@@ -96,7 +96,38 @@ fn current_file_menu() -> GitMenuNode {
             action("Git.CurrentFile.CompareRevision", "compareRevision"),
             action("Git.CurrentFile.CompareBranch", "compareBranch"),
             action("Git.CurrentFile.ShowHistory", "showHistory"),
+            hosting_menu(
+                "Git.CurrentFile.GitHub",
+                "github",
+                [
+                    ("Git.CurrentFile.Github.Open", "openHosted"),
+                    ("Git.CurrentFile.Github.Copy", "copyLink"),
+                ],
+            ),
+            hosting_menu(
+                "Git.CurrentFile.GitLab",
+                "gitlab",
+                [
+                    ("Git.CurrentFile.GitLab.Open", "openHosted"),
+                    ("Git.CurrentFile.GitLab.Copy", "copyLink"),
+                ],
+            ),
         ],
+    }
+}
+
+fn hosting_menu(
+    platform: &'static str,
+    label: &'static str,
+    actions: impl IntoIterator<Item = (&'static str, &'static str)>,
+) -> GitMenuNode {
+    ChildMenu {
+        id: platform,
+        label,
+        children: actions
+            .into_iter()
+            .map(|(id, text)| action(id, text))
+            .collect(),
     }
 }
 
@@ -105,6 +136,25 @@ fn git_menu_spec() -> Vec<GitMenuNode> {
     nodes.extend(branch_and_log_actions());
     nodes.push(local_changes_menu());
     nodes.push(current_file_menu());
+    nodes.push(Separator);
+    nodes.push(hosting_menu(
+        "Git.MainMenu.GitHub",
+        "github",
+        [
+            ("Github.Open.In.Browser", "openHosted"),
+            ("GitHub.Copy.Link", "copyLink"),
+            ("Github.Create.Pull.Request", "createPullRequest"),
+        ],
+    ));
+    nodes.push(hosting_menu(
+        "Git.MainMenu.GitLab",
+        "gitlab",
+        [
+            ("GitLab.Open.In.Browser", "openHosted"),
+            ("GitLab.Copy.Link", "copyLink"),
+            ("GitLab.Merge.Request.Create", "createMergeRequest"),
+        ],
+    ));
     nodes.push(Separator);
     nodes.push(shortcut_action(
         "Vcs.QuickListPopupAction",
@@ -211,6 +261,9 @@ mod tests {
                 "Git.MainMenu.LocalChanges",
                 "Git.MainMenu.FileActions",
                 "|",
+                "Git.MainMenu.GitHub",
+                "Git.MainMenu.GitLab",
+                "|",
                 "Vcs.QuickListPopupAction",
             ]
             .map(str::to_owned)
@@ -226,6 +279,30 @@ mod tests {
                 "ChangesView.Revert"
             ]
         );
+        let GitMenuNode::Submenu { children, .. } = &menu[23] else {
+            panic!("GitHub submenu")
+        };
+        assert_eq!(
+            ids(children),
+            [
+                "Github.Open.In.Browser",
+                "GitHub.Copy.Link",
+                "Github.Create.Pull.Request"
+            ]
+            .map(str::to_owned)
+        );
+        let GitMenuNode::Submenu { children, .. } = &menu[24] else {
+            panic!("GitLab submenu")
+        };
+        assert_eq!(
+            ids(children),
+            [
+                "GitLab.Open.In.Browser",
+                "GitLab.Copy.Link",
+                "GitLab.Merge.Request.Create"
+            ]
+            .map(str::to_owned)
+        );
         let GitMenuNode::Submenu { children, .. } = &menu[21] else {
             panic!("current file submenu")
         };
@@ -239,6 +316,8 @@ mod tests {
                 "Git.CurrentFile.CompareRevision",
                 "Git.CurrentFile.CompareBranch",
                 "Git.CurrentFile.ShowHistory",
+                "Git.CurrentFile.GitHub",
+                "Git.CurrentFile.GitLab",
             ]
         );
     }

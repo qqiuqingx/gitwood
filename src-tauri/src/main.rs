@@ -5,6 +5,7 @@ use integrate::*;
 use stash_changes::*;
 mod conflicts;
 mod credential;
+mod hosting;
 mod native_git_menu;
 mod native_menu;
 mod native_menu_state;
@@ -386,6 +387,13 @@ fn main() {
             theme_catalog,
             set_theme,
             get_settings,
+            hosting::create_hosting_link,
+            hosting::hosting_remotes,
+            hosting::open_hosting_link,
+            hosting::update_hosting_hosts,
+            hosting::get_hosting_hosts,
+            hosting::open_theme_directory,
+            hosting::reveal_workspace_file,
             native_menu::update_native_menu_context,
             save_layout,
             save_history_preferences,

@@ -1,7 +1,7 @@
 //! One active repository; immutable generations prevent cross-repository cache/results.
 use super::{invalid, refs, status, Repository};
 use crate::{
-    git::{CancellationToken, GitError, GitRunner, RunOptions},
+    git::{CancellationToken, GitError, GitRunner, ReadCommand, ReadOperation, RunOptions},
     history::{
         details::{self, Commit, Filter},
         CommitId, Direction, GraphLayout,
@@ -29,6 +29,130 @@ pub struct Lease {
     pub(super) options: RunOptions,
     pub(super) data: Arc<tokio::sync::Mutex<Data>>,
     pub(super) writes: Arc<super::write::Writes>,
+}
+
+impl Lease {
+    /// Read one configured remote URL without exposing it in errors or logs.
+    pub async fn hosting_remote_url(&self, remote: &str) -> Result<String, GitError> {
+        if remote.is_empty()
+            || remote.len() > 128
+            || !remote
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'-' | b'.'))
+        {
+            return Err(invalid("hosting.remoteUnavailable"));
+        }
+        let result = self
+            .runner
+            .run(
+                ReadCommand::new(ReadOperation::RemoteUrl).args(["get-url", remote]),
+                &self.options,
+            )
+            .await
+            .map_err(|_| invalid("hosting.remoteUnavailable"))?;
+        let value =
+            String::from_utf8(result.stdout).map_err(|_| invalid("hosting.remoteUnavailable"))?;
+        let mut urls = value.lines();
+        let Some(url) = urls.next() else {
+            return Err(invalid("hosting.remoteUnavailable"));
+        };
+        if urls.next().is_some() || url.is_empty() {
+            return Err(invalid("hosting.remoteUnavailable"));
+        }
+        Ok(url.to_owned())
+    }
+
+    /// Check local remote-tracking refs only; this never contacts the hosting service.
+    pub async fn hosting_revision_published(&self, remote: &str, revision: &str) -> bool {
+        if !valid_hosting_remote(remote) || !valid_object_id(revision) {
+            return false;
+        }
+        let contains = format!("--contains={revision}");
+        let prefix = format!("refs/remotes/{remote}/");
+        self.runner
+            .run(
+                ReadCommand::new(ReadOperation::HostingContains).args([
+                    "--count=1",
+                    "--format=%(refname)",
+                    contains.as_str(),
+                    prefix.as_str(),
+                ]),
+                &self.options,
+            )
+            .await
+            .is_ok_and(|output| !output.stdout.is_empty())
+    }
+
+    pub async fn hosting_branch_published(&self, remote: &str, branch: &str) -> bool {
+        if !valid_hosting_remote(remote) || !valid_hosting_branch(branch) {
+            return false;
+        }
+        let Some(revision) = self.hosting_ref_oid(&format!("refs/heads/{branch}")).await else {
+            return false;
+        };
+        self.hosting_revision_published(remote, &revision).await
+    }
+
+    pub async fn hosting_remote_branch_exists(&self, remote: &str, branch: &str) -> bool {
+        if !valid_hosting_remote(remote) || !valid_hosting_branch(branch) {
+            return false;
+        }
+        self.hosting_ref_oid(&format!("refs/remotes/{remote}/{branch}"))
+            .await
+            .is_some()
+    }
+
+    async fn hosting_ref_oid(&self, reference: &str) -> Option<String> {
+        let output = self
+            .runner
+            .run(
+                ReadCommand::new(ReadOperation::HostingRef).args([
+                    "--count=1",
+                    "--format=%(objectname)",
+                    reference,
+                ]),
+                &self.options,
+            )
+            .await
+            .ok()?;
+        let value = String::from_utf8(output.stdout).ok()?;
+        let mut lines = value.lines();
+        let oid = lines.next()?;
+        if lines.next().is_some() || !valid_object_id(oid) {
+            return None;
+        }
+        Some(oid.to_owned())
+    }
+}
+
+fn valid_hosting_remote(remote: &str) -> bool {
+    !remote.is_empty()
+        && remote.len() <= 128
+        && !remote.starts_with('-')
+        && !remote.starts_with('.')
+        && !remote.ends_with('.')
+        && !remote.contains("..")
+        && remote
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-' | b'.'))
+}
+
+fn valid_hosting_branch(branch: &str) -> bool {
+    !branch.is_empty()
+        && branch.len() <= 1024
+        && !branch.contains("..")
+        && !branch.contains("@{")
+        && !branch.ends_with('.')
+        && !branch
+            .chars()
+            .any(|ch| ch.is_control() || ch.is_whitespace() || "~^:?*[\\".contains(ch))
+        && branch.split('/').all(|part| {
+            !part.is_empty() && !part.starts_with('.') && !part.ends_with(".lock") && part != "@"
+        })
+}
+
+fn valid_object_id(value: &str) -> bool {
+    [40, 64].contains(&value.len()) && value.bytes().all(|byte| byte.is_ascii_hexdigit())
 }
 #[derive(Default)]
 pub(super) struct Data {
@@ -207,6 +331,7 @@ impl Sessions {
         Ok(())
     }
 }
+
 impl Lease {
     pub(super) fn ensure_current(&self) -> Result<(), GitError> {
         if self.options.cancellation.is_cancelled() {
@@ -477,5 +602,104 @@ impl Lease {
             return Err(invalid("repository.stale"));
         }
         Ok(tree.page(expanded, start, end, locate))
+    }
+}
+
+#[cfg(test)]
+mod hosting_publication_tests {
+    use super::{Lease, Repository, RunOptions};
+    use crate::git::GitRunner;
+    use std::{path::Path, process::Command};
+
+    fn git(cwd: &Path, args: &[&str]) -> String {
+        let output = Command::new("git")
+            .args(args)
+            .current_dir(cwd)
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "git {args:?}: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        String::from_utf8(output.stdout).unwrap().trim().to_owned()
+    }
+
+    fn create_fixture(directory: &Path) -> (std::path::PathBuf, String, String) {
+        let repository_path = directory.join("repo");
+        let origin_path = directory.join("origin.git");
+        let mirror_path = directory.join("mirror.git");
+        std::fs::create_dir(&repository_path).unwrap();
+        std::fs::create_dir(&origin_path).unwrap();
+        std::fs::create_dir(&mirror_path).unwrap();
+        git(&origin_path, &["init", "--bare"]);
+        git(&mirror_path, &["init", "--bare"]);
+        git(&repository_path, &["init", "--initial-branch=main"]);
+        git(&repository_path, &["config", "user.name", "Gitwood Test"]);
+        git(
+            &repository_path,
+            &["config", "user.email", "gitwood@example.invalid"],
+        );
+        std::fs::write(repository_path.join("file.txt"), "first\n").unwrap();
+        git(&repository_path, &["add", "file.txt"]);
+        git(&repository_path, &["commit", "-m", "first"]);
+        let first = git(&repository_path, &["rev-parse", "HEAD"]);
+        git(
+            &repository_path,
+            &["remote", "add", "origin", origin_path.to_str().unwrap()],
+        );
+        git(
+            &repository_path,
+            &["remote", "add", "mirror", mirror_path.to_str().unwrap()],
+        );
+        git(&repository_path, &["push", "-u", "origin", "main"]);
+        git(&repository_path, &["fetch", "origin"]);
+        git(&repository_path, &["branch", "side", &first]);
+        git(&repository_path, &["push", "origin", "side"]);
+        git(&repository_path, &["fetch", "origin"]);
+        std::fs::write(repository_path.join("file.txt"), "second\n").unwrap();
+        git(&repository_path, &["commit", "-am", "second"]);
+        let second = git(&repository_path, &["rev-parse", "HEAD"]);
+        git(
+            &repository_path,
+            &["push", "mirror", &format!("{first}:refs/heads/main")],
+        );
+        git(&repository_path, &["fetch", "mirror"]);
+        (repository_path, first, second)
+    }
+
+    async fn open_lease(repository_path: &Path) -> Lease {
+        let runner = GitRunner::discover(None).await.unwrap();
+        let options = RunOptions::new(repository_path);
+        let repository = Repository::open(&runner, &options).await.unwrap();
+        Lease {
+            generation: 1,
+            repository,
+            runner,
+            options,
+            data: Default::default(),
+            writes: Default::default(),
+        }
+    }
+
+    #[tokio::test]
+    async fn checks_published_revisions_with_multiple_local_bare_remote_branches() {
+        let directory = tempfile::tempdir().unwrap();
+        let (repository_path, first, second) = create_fixture(directory.path());
+        let lease = open_lease(&repository_path).await;
+        assert!(lease.hosting_revision_published("origin", &first).await);
+        assert!(!lease.hosting_revision_published("origin", &second).await);
+        assert!(lease.hosting_revision_published("mirror", &first).await);
+        assert!(!lease.hosting_revision_published("mirror", &second).await);
+        assert!(lease.hosting_remote_branch_exists("origin", "side").await);
+        assert!(lease.hosting_branch_published("origin", "side").await);
+        assert!(
+            !lease
+                .hosting_remote_branch_exists("origin", "missing")
+                .await
+        );
+        git(&repository_path, &["push", "origin", "main"]);
+        git(&repository_path, &["fetch", "origin"]);
+        assert!(lease.hosting_branch_published("origin", "main").await);
     }
 }
