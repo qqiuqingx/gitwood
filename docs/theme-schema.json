@@ -248,6 +248,9 @@
         "label.head": {
           "$ref": "#/$defs/color"
         },
+        "log.current.branch.bg": {
+          "$ref": "#/$defs/color"
+        },
         "status.added": {
           "$ref": "#/$defs/color"
         },
@@ -472,6 +475,67 @@
           "pattern": "^[0-9]+(?:\\.[0-9]+)?px$"
         },
         "tree.indent": {
+          "type": "string",
+          "pattern": "^[0-9]+(?:\\.[0-9]+)?px$"
+        },
+        "project.avatar.0.start": {
+          "$ref": "#/$defs/color"
+        },
+        "project.avatar.0.end": {
+          "$ref": "#/$defs/color"
+        },
+        "project.avatar.1.start": {
+          "$ref": "#/$defs/color"
+        },
+        "project.avatar.1.end": {
+          "$ref": "#/$defs/color"
+        },
+        "project.avatar.2.start": {
+          "$ref": "#/$defs/color"
+        },
+        "project.avatar.2.end": {
+          "$ref": "#/$defs/color"
+        },
+        "project.avatar.3.start": {
+          "$ref": "#/$defs/color"
+        },
+        "project.avatar.3.end": {
+          "$ref": "#/$defs/color"
+        },
+        "project.avatar.4.start": {
+          "$ref": "#/$defs/color"
+        },
+        "project.avatar.4.end": {
+          "$ref": "#/$defs/color"
+        },
+        "project.avatar.5.start": {
+          "$ref": "#/$defs/color"
+        },
+        "project.avatar.5.end": {
+          "$ref": "#/$defs/color"
+        },
+        "project.avatar.6.start": {
+          "$ref": "#/$defs/color"
+        },
+        "project.avatar.6.end": {
+          "$ref": "#/$defs/color"
+        },
+        "project.avatar.7.start": {
+          "$ref": "#/$defs/color"
+        },
+        "project.avatar.7.end": {
+          "$ref": "#/$defs/color"
+        },
+        "project.avatar.8.start": {
+          "$ref": "#/$defs/color"
+        },
+        "project.avatar.8.end": {
+          "$ref": "#/$defs/color"
+        },
+        "project.avatar.text": {
+          "$ref": "#/$defs/color"
+        },
+        "project.avatar.size": {
           "type": "string",
           "pattern": "^[0-9]+(?:\\.[0-9]+)?px$"
         }
