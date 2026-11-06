@@ -6,17 +6,23 @@ Gitwood 是使用 Rust、Tauri 2、Svelte 5 和 TypeScript 构建的跨平台开
 客户端，交互参考 IntelliJ IDEA。项目使用自有名称和原创图标，独立开发，
 不收集遥测或使用数据。
 
-**状态：v0.1（macOS）。** 应用可以打开本地仓库、浏览历史与双栏 Diff、提交选中变更
-（含差异块选择与 Amend），使用 IDEA 风格分支弹窗完成新建/检出/重命名/删除，执行
-Fetch、Update、Push，并在需要时于应用窗口内弹出 Git/SSH 凭据输入框。v0.1 只面向
-macOS；Windows 和 Linux 从 v0.2 起，三平台 CI 推迟到 v0.3。
+**状态：v0.2 开发中（已在 macOS 验证）。** 在 v0.1（打开本地仓库、浏览历史与双栏 Diff、
+提交选中变更与 Amend、IDEA 风格分支弹窗、Fetch / Update / Push、应用内 Git/SSH 凭据输入）
+基础上，v0.2 新增冲突解决与三方合并编辑器，Merge / Rebase / Pull 对话框，Cherry-pick、
+Revert、Reset 与标签，Stash，单文件历史与 Annotate（Blame），完整的原生 Git 菜单与
+VCS Operations 弹窗（⌃V），可热重载的用户主题，以及 GitHub / GitLab 浏览器链接。
+详见[更新日志](CHANGELOG.md)。Windows 和 Linux 的代码已在适配，但尚未运行时验证；
+三平台 CI 推迟到 v0.3。
 
 ### 已知限制
 
 - Gitwood 不保存它所询问的凭据；是否记住由系统的 Git 凭据助手（如 macOS 钥匙串）决定。
-- 冲突解决待 v0.2。
-- Windows/Linux 从 v0.2 起，尚未运行时验证。
+- GitHub / GitLab 只支持打开和复制浏览器链接，不含访问令牌、PR 列表或 Gist 等功能。
+- Windows/Linux 尚未运行时验证。
 - macOS 使用 ad-hoc 签名、不做公证（见下文）。
+
+用户主题是放在 `~/Library/Application Support/Gitwood/Themes/`（macOS）下的 JSON 文件，
+见[主题说明](docs/themes.md)与[主题 Schema](docs/theme-schema.json)。
 
 ## 截图
 
@@ -93,8 +99,7 @@ Clippy 和 `cargo test` 同时编译桌面适配层。生产构建需要前端�
 
 详见[实施计划](docs/implementation-plan.md)、[架构](docs/architecture.md)、
 [安全规则](SECURITY.md)和[贡献指南](CONTRIBUTING.md)。核心 GitRunner 要求
-Git 2.35.2 及以上；[E2E 方案](docs/architecture.md#e2e-strategy)采用 Windows/Linux 原生 WebDriver，macOS 采用真实应用人工验收。核心已包含
-GitRunner 和临时 index 部分提交验证，尚未接入桌面界面。Windows 使用
+Git 2.35.2 及以上；[E2E 方案](docs/architecture.md#e2e-strategy)采用 Windows/Linux 原生 WebDriver，macOS 采用真实应用人工验收。Windows 使用
 [Git for Windows](https://gitforwindows.org/)。
 
 ## 许可证

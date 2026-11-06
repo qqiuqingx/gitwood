@@ -7,7 +7,7 @@ use std::{
     time::Duration,
 };
 use tokio::{
-    io::{AsyncReadExt, AsyncWriteExt},
+    io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader},
     process::Command,
 };
 
@@ -88,6 +88,61 @@ impl GitRunner {
         execute_report(process, options, &self.path, timeout).await
     }
 
+    /// Run a read command while delivering complete stdout lines without retaining stdout.
+    pub async fn run_stream(
+        &self,
+        command: impl Into<GitCommand>,
+        options: &RunOptions,
+        mut on_line: impl FnMut(&[u8]) -> Result<(), GitError>,
+    ) -> Result<GitOutput, GitError> {
+        let command = command.into();
+        let mut args = command.arguments()?;
+        if !matches!(command, GitCommand::Read(_)) {
+            return Err(GitError::InvalidCommand(
+                "streaming requires a read command".into(),
+            ));
+        }
+        let mut query = self.process(options, true, false);
+        query.arg("--no-pager").args(read_config_arguments()).args([
+            "config",
+            "--show-scope",
+            "--null",
+            "--name-only",
+            "--get-regexp",
+            "^filter\\.",
+        ]);
+        let filter_config =
+            match execute_report(query, options, &self.path, Some(Duration::from_secs(30))).await {
+                Ok(output) if output.code == Some(0) || output.code == Some(1) => output.stdout,
+                Ok(output) => {
+                    return Err(GitError::Exit {
+                        code: output.code,
+                        stderr: output.stderr,
+                    })
+                }
+                Err(GitError::Exit { code: Some(1), .. }) => Vec::new(),
+                Err(error) => return Err(error),
+            };
+        args.splice(1..1, filters::overrides(&filter_config)?);
+        let mut process = self.process(options, true, false);
+        process.args(args);
+        let output = execute_stream(
+            process,
+            options,
+            &self.path,
+            options.timeout.or(Some(Duration::from_secs(30))),
+            &mut on_line,
+        )
+        .await?;
+        if output.code != Some(0) {
+            return Err(GitError::Exit {
+                code: output.code,
+                stderr: output.stderr,
+            });
+        }
+        Ok(output)
+    }
+
     fn process(&self, options: &RunOptions, read: bool, transport: bool) -> Command {
         let mut process = Command::new(&self.path);
         process
@@ -130,6 +185,80 @@ impl GitRunner {
             }
         }
         process
+    }
+}
+
+async fn execute_stream(
+    mut command: Command,
+    options: &RunOptions,
+    path: &Path,
+    timeout: Option<Duration>,
+    on_line: &mut impl FnMut(&[u8]) -> Result<(), GitError>,
+) -> Result<GitOutput, GitError> {
+    if options.cancellation.is_cancelled() {
+        return Err(GitError::Cancelled);
+    }
+    #[cfg(unix)]
+    command.process_group(0);
+    let mut child = command.spawn().map_err(|source| GitError::Spawn {
+        path: path.into(),
+        source,
+    })?;
+    #[cfg(unix)]
+    let group = child.id().and_then(|id| i32::try_from(id).ok());
+    let mut stdin = child.stdin.take().expect("piped stdin");
+    let stdout = child.stdout.take().expect("piped stdout");
+    let mut stderr = child.stderr.take().expect("piped stderr");
+    let mut err = Vec::new();
+    let callback_error = std::sync::Mutex::new(None);
+    let streamed = tokio::select! {
+        biased;
+        _ = options.cancellation.cancelled() => Err(GitError::Cancelled),
+        limit = async { match timeout { Some(limit) => { tokio::time::sleep(limit).await; limit }, None => std::future::pending().await } } => Err(GitError::Timeout(limit)),
+        result = async {
+            let input = async { match stdin.write_all(&options.stdin).await { Err(e) if e.kind() != std::io::ErrorKind::BrokenPipe => return Err(e), _ => {} } drop(stdin); Ok(()) };
+            let lines = read_stdout_lines(stdout, on_line, &callback_error);
+            let (status, _, _, _) = tokio::try_join!(child.wait(), input, lines, read_progress(&mut stderr, &mut err, options))?;
+            Ok::<ExitStatus, std::io::Error>(status)
+        } => result.map_err(GitError::Io),
+    };
+    if streamed.is_err() {
+        #[cfg(unix)]
+        if let Some(group) = group {
+            signal_group(group, 15);
+            tokio::time::sleep(Duration::from_millis(200)).await;
+            signal_group(group, 9);
+        }
+        let _ = child.kill().await;
+    }
+    let status = streamed?;
+    if let Some(error) = callback_error.into_inner().unwrap_or(None) {
+        return Err(error);
+    }
+    classify(status, Vec::new(), err, options)
+}
+
+async fn read_stdout_lines(
+    stdout: impl tokio::io::AsyncRead + Unpin,
+    on_line: &mut impl FnMut(&[u8]) -> Result<(), GitError>,
+    callback_error: &std::sync::Mutex<Option<GitError>>,
+) -> Result<(), std::io::Error> {
+    let mut reader = BufReader::new(stdout);
+    let mut line = Vec::new();
+    loop {
+        line.clear();
+        if reader.read_until(b'\n', &mut line).await? == 0 {
+            return Ok(());
+        }
+        if callback_error
+            .lock()
+            .expect("stream callback lock")
+            .is_none()
+        {
+            if let Err(error) = on_line(line.strip_suffix(b"\n").unwrap_or(&line)) {
+                *callback_error.lock().expect("stream callback lock") = Some(error);
+            }
+        }
     }
 }
 

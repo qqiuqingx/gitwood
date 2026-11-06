@@ -119,31 +119,56 @@ async fn annotate_incremental_matches_git_line_attribution_and_compares_single_f
     repo.put("renamed * file.txt", &edited);
     repo.git("add", &["--", "renamed * file.txt"]).await;
     repo.git("commit", &["-m", "edited after rename"]).await;
+    let edited_again = edited
+        .lines()
+        .enumerate()
+        .map(|(line, text)| if line == 203 { "second edit" } else { text })
+        .collect::<Vec<_>>()
+        .join("\n")
+        + "\n";
+    repo.put("renamed * file.txt", &edited_again);
+    repo.git("add", &["--", "renamed * file.txt"]).await;
+    repo.git("commit", &["-m", "second edit"]).await;
     repo.git("branch", &["-M", "main"]).await;
 
+    let trace = repo.path("annotate-trace.json");
+    let mut options = repo.options.clone();
+    options
+        .env
+        .insert("GIT_TRACE2_EVENT".into(), trace.as_os_str().into());
     let sessions = Sessions::default();
-    let lease = sessions
-        .open(repo.runner.clone(), repo.options.clone())
-        .await
-        .unwrap();
+    let lease = sessions.open(repo.runner.clone(), options).await.unwrap();
     let path = RepoPath::new(b"renamed * file.txt");
     let summary = lease.annotate_open(&path, "HEAD").await.unwrap();
     assert_eq!(summary.total, 205);
     let first_page = lease.annotate_page(&summary.id, 0, 200).await.unwrap();
     let last_page = lease.annotate_page(&summary.id, 200, 205).await.unwrap();
+    let blame_commands = std::fs::read_to_string(&trace)
+        .unwrap()
+        .lines()
+        .filter(|line| {
+            line.contains("\"event\":\"cmd_name\"") && line.contains("\"name\":\"blame\"")
+        })
+        .count();
+    assert_eq!(
+        blame_commands, 1,
+        "pages must share one full-file blame process"
+    );
     let lines = [first_page.lines, last_page.lines].concat();
     assert_eq!(lines[0].text, "line 0");
     assert_eq!(lines[1].text, "changed line");
     assert_eq!(lines[204].text, "line 204");
     let original_hash = String::from_utf8_lossy(
         &repo
-            .read(gitwood_core::git::ReadOperation::RevParse, &["HEAD~2"])
+            .read(gitwood_core::git::ReadOperation::RevParse, &["HEAD~3"])
             .await,
     )
     .trim()
     .to_owned();
     assert_eq!(lines[0].hash, original_hash);
-    assert_eq!(lines[1].hash, summary.revision);
+    assert_ne!(lines[1].hash, summary.revision);
+    assert_eq!(lines[203].text, "second edit");
+    assert_eq!(lines[203].hash, summary.revision);
     let blame = repo
         .read(
             gitwood_core::git::ReadOperation::Blame,
@@ -191,7 +216,7 @@ async fn annotate_incremental_matches_git_line_attribution_and_compares_single_f
         .unwrap();
     assert!(compared.result.is_some());
     assert!(
-        matches!(compared.left, gitwood_core::diff::Content::Text { ref text, .. } if text == &edited)
+        matches!(compared.left, gitwood_core::diff::Content::Text { ref text, .. } if text == &edited_again)
     );
     assert!(
         matches!(compared.right, gitwood_core::diff::Content::Text { ref text, .. } if text == &original)
@@ -217,7 +242,7 @@ async fn annotate_incremental_matches_git_line_attribution_and_compares_single_f
         .unwrap();
     assert!(branch_diff.result.is_some());
     assert!(
-        matches!(branch_diff.right, gitwood_core::diff::Content::Text { ref text, .. } if text == &edited)
+        matches!(branch_diff.right, gitwood_core::diff::Content::Text { ref text, .. } if text == &edited_again)
     );
     std::fs::remove_file(repo.path("renamed * file.txt")).unwrap();
     let deleted = lease
@@ -236,6 +261,10 @@ async fn annotate_incremental_matches_git_line_attribution_and_compares_single_f
         .annotate_open(&RepoPath::new(b"../outside"), "HEAD")
         .await
         .is_err());
+    assert!(lease
+        .annotate_open(&RepoPath::new(b"missing-in-this-revision.txt"), "HEAD")
+        .await
+        .is_err());
     assert!(lease.annotate_page(&old.id, 0, 201).await.is_err());
     assert!(lease.annotate_open(&path, "--output=bad").await.is_err());
     lease.annotate_cancel().await;
@@ -251,14 +280,17 @@ async fn closing_annotation_cancels_and_terminates_the_running_git_process() {
 
     let repo = Repo::new().await;
     repo.put("large.txt", &"line\n".repeat(20_000));
-    repo.git("add", &["--", "large.txt"]).await;
+    repo.put("other.txt", "other line\n");
+    repo.git("add", &["--", "large.txt", "other.txt"]).await;
     repo.git("commit", &["-m", "annotate fixture"]).await;
     let marker = repo.path("blame.started");
+    let pidfile = repo.path("blame.pid");
     let wrapper = repo.path("slow-git");
     let git_path = repo.runner.path().display().to_string();
     let marker_path = marker.display().to_string();
+    let pid_path = pidfile.display().to_string();
     script(&wrapper, &format!(
-        "for argument in \"$@\"; do if [ \"$argument\" = blame ]; then touch '{marker_path}'; sleep 30; break; fi; done\nexec '{git_path}' \"$@\""
+        "for argument in \"$@\"; do if [ \"$argument\" = blame ]; then echo $$ > '{pid_path}'; touch '{marker_path}'; sleep 30; break; fi; done\nexec '{git_path}' \"$@\""
     ));
     let runner = GitRunner::discover(Some(&wrapper)).await.unwrap();
     let sessions = Sessions::default();
@@ -282,5 +314,45 @@ async fn closing_annotation_cancels_and_terminates_the_running_git_process() {
         .await
         .unwrap()
         .unwrap();
+    assert!(matches!(
+        result,
+        Err(gitwood_core::git::GitError::Cancelled)
+    ));
+    let pid = std::fs::read_to_string(&pidfile).unwrap();
+    let alive = std::process::Command::new("/bin/kill")
+        .args(["-0", pid.trim()])
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .unwrap()
+        .success();
+    assert!(!alive, "cancelled Git child process must be gone");
+
+    std::fs::remove_file(&marker).unwrap();
+    let reopened = lease
+        .annotate_open(&RepoPath::new(b"other.txt"), "HEAD")
+        .await
+        .unwrap();
+    let worker = lease.clone();
+    let old_id = reopened.id.clone();
+    let waiting = tokio::spawn(async move { worker.annotate_page(&old_id, 0, 200).await });
+    tokio::time::timeout(Duration::from_secs(5), async {
+        while !marker.exists() {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .unwrap();
+    tokio::task::yield_now().await;
+    lease
+        .annotate_open(&RepoPath::new(b"large.txt"), "HEAD")
+        .await
+        .unwrap();
+    let result = tokio::time::timeout(Duration::from_secs(3), waiting)
+        .await
+        .unwrap()
+        .unwrap();
     assert!(result.is_err());
+    lease.annotate_cancel().await;
+    assert_ne!(reopened.id, summary.id);
 }

@@ -1286,7 +1286,7 @@ dependencies = [
 
 [[package]]
 name = "gitwood"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "gitwood-core",
  "serde",
@@ -1299,7 +1299,7 @@ dependencies = [
 
 [[package]]
 name = "gitwood-core"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "notify",
  "serde",

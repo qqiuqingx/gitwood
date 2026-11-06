@@ -1,6 +1,6 @@
 //! Read-only, revision-pinned blame data. The complete annotation stays in Rust and is paged.
 use super::{invalid, os, session::Lease, valid_repo_path, RepoPath};
-use crate::git::{GitError, ReadCommand, ReadOperation};
+use crate::git::{CancellationToken, GitError, ReadCommand, ReadOperation, RunOptions};
 use serde::Serialize;
 use std::{
     ffi::OsString,
@@ -27,7 +27,15 @@ pub(super) struct Annotation {
     path: RepoPath,
     source: Vec<String>,
     history: Vec<super::file_history::FileRevision>,
-    lines: tokio::sync::Mutex<Vec<Option<AnnotatedLine>>>,
+    lines: std::sync::Mutex<Vec<Option<AnnotatedLine>>>,
+    progress: tokio::sync::watch::Receiver<AnnotationProgress>,
+    cancellation: CancellationToken,
+}
+
+#[derive(Clone, Default)]
+struct AnnotationProgress {
+    done: bool,
+    error: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -56,39 +64,6 @@ struct Group {
     time: i64,
     previous: Option<String>,
     previous_path: Option<Vec<u8>>,
-}
-
-fn parse_incremental(bytes: &[u8]) -> Result<Vec<Group>, GitError> {
-    let mut groups = Vec::<Group>::new();
-    for line in bytes.split(|byte| *byte == b'\n') {
-        if line.is_empty() {
-            continue;
-        }
-        if let Some(group) = parse_header(line) {
-            groups.push(group);
-            continue;
-        }
-        let Some(group) = groups.last_mut() else {
-            return Err(invalid("annotate.invalidRecord"));
-        };
-        if let Some(value) = line.strip_prefix(b"author ") {
-            group.author = String::from_utf8_lossy(value).into_owned();
-        } else if let Some(value) = line.strip_prefix(b"author-time ") {
-            group.time = String::from_utf8_lossy(value)
-                .parse()
-                .map_err(|_| invalid("annotate.invalidRecord"))?;
-        } else if let Some(value) = line.strip_prefix(b"previous ") {
-            let mut fields = value.splitn(2, |byte| *byte == b' ');
-            group.previous = fields
-                .next()
-                .map(|v| String::from_utf8_lossy(v).into_owned());
-            group.previous_path = fields.next().map(ToOwned::to_owned);
-        }
-    }
-    if groups.iter().any(|group| group.count == 0) {
-        return Err(invalid("annotate.invalidRecord"));
-    }
-    Ok(groups)
 }
 
 fn parse_header(line: &[u8]) -> Option<Group> {
@@ -128,74 +103,135 @@ fn content_lines(content: &[u8]) -> Result<Vec<String>, GitError> {
         .collect())
 }
 
-fn fill_lines(
-    groups: Vec<Group>,
-    source: &[String],
-    start: usize,
-    values: &mut [Option<AnnotatedLine>],
-    history: &[super::file_history::FileRevision],
-) -> Result<(), GitError> {
-    for group in groups {
+struct BlameStream {
+    annotation: Arc<Annotation>,
+    group: Option<Group>,
+    progress: tokio::sync::watch::Sender<AnnotationProgress>,
+}
+
+impl BlameStream {
+    fn line(&mut self, line: &[u8]) -> Result<(), GitError> {
+        if line.is_empty() {
+            return Ok(());
+        }
+        if let Some(group) = parse_header(line) {
+            self.flush()?;
+            self.group = Some(group);
+            return Ok(());
+        }
+        let group = self
+            .group
+            .as_mut()
+            .ok_or_else(|| invalid("annotate.invalidRecord"))?;
+        if let Some(value) = line.strip_prefix(b"author ") {
+            group.author = String::from_utf8_lossy(value).into_owned();
+        } else if let Some(value) = line.strip_prefix(b"author-time ") {
+            group.time = String::from_utf8_lossy(value)
+                .parse()
+                .map_err(|_| invalid("annotate.invalidRecord"))?;
+        } else if let Some(value) = line.strip_prefix(b"previous ") {
+            let mut fields = value.splitn(2, |byte| *byte == b' ');
+            group.previous = fields
+                .next()
+                .map(|v| String::from_utf8_lossy(v).into_owned());
+            group.previous_path = fields.next().map(ToOwned::to_owned);
+        }
+        Ok(())
+    }
+
+    fn flush(&mut self) -> Result<(), GitError> {
+        let Some(group) = self.group.take() else {
+            return Ok(());
+        };
         let begin = group
             .final_line
             .checked_sub(1)
             .ok_or_else(|| invalid("annotate.invalidRecord"))?;
-        for offset in 0..group.count {
-            let index = begin + offset;
-            let Some(slot) = index.checked_sub(start).and_then(|i| values.get_mut(i)) else {
-                continue;
-            };
-            let mut line = AnnotatedLine {
-                line: index,
-                short_hash: group.hash.chars().take(8).collect(),
-                hash: group.hash.clone(),
-                author: group.author.clone(),
-                author_time: group.time,
-                text: source[index].clone(),
-                previous: group.previous.clone(),
-                previous_path: group.previous_path.as_deref().map(RepoPath::new),
-            };
-            attach_previous_revision(&mut line, history);
-            *slot = Some(line);
+        if group.count == 0
+            || begin
+                .checked_add(group.count)
+                .is_none_or(|end| end > self.annotation.source.len())
+        {
+            return Err(invalid("annotate.invalidRecord"));
         }
+        let mut lines = self.annotation.lines.lock().expect("annotation lines lock");
+        let mut prototype = AnnotatedLine {
+            line: begin,
+            short_hash: group.hash.chars().take(8).collect(),
+            hash: group.hash,
+            author: group.author,
+            author_time: group.time,
+            text: self.annotation.source[begin].clone(),
+            previous: group.previous,
+            previous_path: group.previous_path.as_deref().map(RepoPath::new),
+        };
+        attach_previous_revision(&mut prototype, &self.annotation.history);
+        for index in begin..begin + group.count {
+            if lines[index].is_some() {
+                return Err(invalid("annotate.invalidRecord"));
+            }
+            let mut line = prototype.clone();
+            line.line = index;
+            line.text.clone_from(&self.annotation.source[index]);
+            lines[index] = Some(line);
+        }
+        drop(lines);
+        self.progress.send_modify(|_| {});
+        Ok(())
     }
-    if values.iter().any(Option::is_none) {
-        return Err(invalid("annotate.incompleteOutput"));
+
+    fn finish(mut self) -> Result<(), GitError> {
+        self.flush()?;
+        if self
+            .annotation
+            .lines
+            .lock()
+            .expect("annotation lines lock")
+            .iter()
+            .any(Option::is_none)
+        {
+            return Err(invalid("annotate.incompleteOutput"));
+        }
+        Ok(())
     }
-    Ok(())
 }
 
-async fn fill_page(
+fn spawn_blame(
     lease: &Lease,
-    annotation: &Annotation,
-    start: usize,
-    end: usize,
-    values: &mut [Option<AnnotatedLine>],
-    options: &crate::git::RunOptions,
-) -> Result<(), GitError> {
-    let range = format!("-L{},{}", start + 1, end);
-    let args = [
-        "--porcelain",
-        "--incremental",
-        range.as_str(),
-        annotation.revision.as_str(),
-        "--",
-    ]
-    .into_iter()
-    .map(Into::into)
-    .chain([os(annotation.path.bytes.clone())])
-    .collect::<Vec<OsString>>();
-    let output = lease
-        .runner
-        .run(ReadCommand::new(ReadOperation::Blame).args(args), options)
-        .await?;
-    fill_lines(
-        parse_incremental(&output.stdout)?,
-        &annotation.source,
-        start,
-        values,
-        &annotation.history,
-    )
+    annotation: Arc<Annotation>,
+    options: RunOptions,
+    progress: tokio::sync::watch::Sender<AnnotationProgress>,
+) {
+    let runner = lease.runner.clone();
+    tokio::spawn(async move {
+        let args = [
+            "--porcelain",
+            "--incremental",
+            annotation.revision.as_str(),
+            "--",
+        ]
+        .into_iter()
+        .map(Into::into)
+        .chain([os(annotation.path.bytes.clone())])
+        .collect::<Vec<_>>();
+        let mut stream = BlameStream {
+            annotation,
+            group: None,
+            progress: progress.clone(),
+        };
+        let result = runner
+            .run_stream(
+                ReadCommand::new(ReadOperation::Blame).args(args),
+                &options,
+                |line| stream.line(line),
+            )
+            .await
+            .and_then(|_| stream.finish());
+        progress.send_modify(|state| {
+            state.done = true;
+            state.error = result.err().map(|error| error.to_string());
+        });
+    });
 }
 
 async fn history_rows(
@@ -242,6 +278,9 @@ impl Lease {
         }
         let mut options = self.options.clone();
         options.cancellation = token;
+        options
+            .env
+            .insert("GIT_LITERAL_PATHSPECS".into(), "1".into());
         let revision = crate::ops::integrate::pin(&self.runner, &options, target).await?;
         let history = history_rows(self, path, &revision, &options).await?;
         let content = self
@@ -274,14 +313,24 @@ impl Lease {
             oldest,
             newest,
         };
-        self.data.lock().await.annotation = Some(Arc::new(Annotation {
+        let (progress_tx, progress_rx) = tokio::sync::watch::channel(AnnotationProgress::default());
+        let annotation = Arc::new(Annotation {
             id,
             revision,
             path: path.clone(),
             source,
             history,
-            lines: tokio::sync::Mutex::new(vec![None; summary.total]),
-        }));
+            lines: std::sync::Mutex::new(vec![None; summary.total]),
+            progress: progress_rx,
+            cancellation: options.cancellation.clone(),
+        });
+        let mut data = self.data.lock().await;
+        if options.cancellation.is_cancelled() {
+            return Err(GitError::Cancelled);
+        }
+        data.annotation = Some(annotation.clone());
+        drop(data);
+        spawn_blame(self, annotation, options, progress_tx);
         Ok(summary)
     }
 
@@ -294,32 +343,41 @@ impl Lease {
         if end < start || end - start > 200 {
             return Err(invalid("page exceeds 200 lines"));
         }
-        let (value, token) = {
+        let value = {
             let data = self.data.lock().await;
-            let value = data
-                .annotation
+            data.annotation
                 .as_ref()
                 .filter(|value| value.id == id)
                 .cloned()
-                .ok_or_else(|| invalid("annotate.stale"))?;
-            let token = data
-                .annotation_cancel
-                .clone()
-                .ok_or_else(|| invalid("annotate.stale"))?;
-            (value, token)
+                .ok_or_else(|| invalid("annotate.stale"))?
         };
         if end > value.source.len() {
             return Err(invalid("annotate.invalidRange"));
         }
-        let mut rows = value.lines.lock().await;
-        if rows[start..end].iter().any(Option::is_none) {
-            let mut options = self.options.clone();
-            options.cancellation = token;
-            options
-                .env
-                .insert("GIT_LITERAL_PATHSPECS".into(), "1".into());
-            fill_page(self, &value, start, end, &mut rows[start..end], &options).await?;
+        let mut progress = value.progress.clone();
+        loop {
+            let ready = value.lines.lock().expect("annotation lines lock")[start..end]
+                .iter()
+                .all(Option::is_some);
+            if ready {
+                break;
+            }
+            let state = progress.borrow().clone();
+            if state.done {
+                if value.cancellation.is_cancelled() {
+                    return Err(GitError::Cancelled);
+                }
+                if let Some(error) = state.error {
+                    return Err(invalid(&error));
+                }
+                return Err(invalid("annotate.incompleteOutput"));
+            }
+            progress
+                .changed()
+                .await
+                .map_err(|_| invalid("annotate.incompleteOutput"))?;
         }
+        let rows = value.lines.lock().expect("annotation lines lock");
         let lines = rows[start..end]
             .iter()
             .cloned()
@@ -333,9 +391,10 @@ impl Lease {
     }
 
     pub async fn annotate_cancel(&self) {
-        if let Some(token) = self.data.lock().await.annotation_cancel.take() {
+        let mut data = self.data.lock().await;
+        if let Some(token) = data.annotation_cancel.take() {
             token.cancel();
         }
-        self.data.lock().await.annotation = None;
+        data.annotation = None;
     }
 }

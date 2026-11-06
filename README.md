@@ -7,20 +7,27 @@ Svelte 5, and TypeScript. Its interaction design references IntelliJ IDEA.
 Gitwood uses its own name and original icon; it is an independent project.
 No telemetry or usage data is collected.
 
-**Status: v0.1 (macOS).** The application opens local repositories, browses
-history and a double-pane diff, commits selected changes (including partial hunks
-and Amend), uses the IDEA-style branch popup to create/checkout/rename/delete
-branches, fetches/updates/pushes, and prompts for Git/SSH credentials in the app
-window when needed. v0.1 targets macOS only. Windows and Linux support begins in
-v0.2; the three-platform CI is deferred to v0.3.
+**Status: v0.2 in development (verified on macOS).** On top of v0.1 (local
+repositories, history and double-pane diff, partial commits and Amend, the
+IDEA-style branch popup, Fetch / Update / Push, in-app Git/SSH credential
+prompts), v0.2 adds conflict resolution with a three-way merge editor; Merge,
+Rebase and Pull dialogs; Cherry-pick, Revert, Reset and tags; Stash; file
+history and Annotate (Blame); the full native Git menu with the VCS Operations
+popup (⌃V); user themes with hot reload; and GitHub / GitLab browser links.
+See the [changelog](CHANGELOG.md). Windows and Linux code paths exist but are not
+yet runtime-verified; the three-platform CI is deferred to v0.3.
 
 ### Known limitations
 
 - Gitwood never stores credentials it asks for; whether they are remembered is
   decided by the system Git credential helper (macOS Keychain, etc.).
-- Conflict resolution is deferred to v0.2.
-- Windows and Linux support begins in v0.2; neither has been runtime-verified.
+- GitHub / GitLab support only opens and copies browser links; no API token,
+  pull-request list, or Gist features.
+- Windows and Linux have not been runtime-verified.
 - macOS artifacts are ad-hoc signed and not notarized (see below).
+
+User themes are JSON files in `~/Library/Application Support/Gitwood/Themes/`
+(macOS); see [themes](docs/themes.md) and the [theme schema](docs/theme-schema.json).
 
 ## Screenshots
 
@@ -101,8 +108,7 @@ See the [implementation plan](docs/implementation-plan.md),
 [architecture](docs/architecture.md), [security rules](SECURITY.md), and
 [contribution guide](CONTRIBUTING.md). The core runner requires Git 2.35.2 or newer;
 the [E2E strategy](docs/architecture.md#e2e-strategy) uses native WebDriver on Windows/Linux and manual native acceptance on macOS. On Windows, install
-[Git for Windows](https://gitforwindows.org/). The core includes GitRunner and an alternate-index partial-commit probe;
-these operations are not yet exposed by the desktop shell.
+[Git for Windows](https://gitforwindows.org/).
 
 ## License
 
