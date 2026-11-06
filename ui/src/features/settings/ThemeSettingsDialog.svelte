@@ -1,14 +1,15 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { onMount, untrack } from 'svelte';
   import { invoke } from '@tauri-apps/api/core';
   import { listenWindowEvent } from '../../windowEvents';
   import { translate, type Locale } from '../../i18n';
   import { type ThemeCatalog, type ThemeChoice, type ThemeDescriptor } from '../../theme';
   import { contrastWarnings, displayedChoice, errorRows, themeAvailable, ThemeSettingsSession } from '../../theme/theme-settings';
 
-  let { locale, currentTheme, previewTheme, onclose }: {
+  let { locale, currentTheme, previewTheme, onclose, editorTabLimit }: {
     locale: Locale;
     currentTheme: ThemeChoice;
+    editorTabLimit: number;
     previewTheme: (choice: ThemeChoice) => Promise<void>;
     onclose: () => void;
   } = $props();
@@ -26,6 +27,9 @@
   let githubHosts = $state('');
   let gitlabHosts = $state('');
   let hostsSaved = $state(false);
+  // Initial value only; the saved setting comes back through preferences-changed.
+  let tabLimit = $state(untrack(() => editorTabLimit));
+  let tabLimitSaved = $state(false);
   let warningList = $derived(catalog ? contrastWarnings(selected, catalog.themes, systemDark) : []);
   let errorList = $derived(catalog ? errorRows(catalog.errors) : []);
   let savedChoiceUnavailable = $derived(catalog ? currentTheme.startsWith('user:') && !themeAvailable(currentTheme, catalog.themes) : false);
@@ -136,6 +140,12 @@
     } catch (cause) { error = String(cause); }
   }
 
+  async function saveTabLimit() {
+    tabLimitSaved = false;
+    try { await invoke('save_editor_tab_limit', { limit: Math.trunc(tabLimit) }); tabLimitSaved = true; }
+    catch (cause) { error = String(cause); }
+  }
+
   function label(theme: ThemeDescriptor): string {
     if (!theme.builtIn) return theme.name;
     if (theme.id === 'light' || theme.id === 'dark' || theme.id === 'walnut') return t(theme.id);
@@ -173,6 +183,12 @@
       <label>{t('gitlabHosts')}<textarea bind:value={gitlabHosts} rows="3"></textarea></label>
       <button type="button" onclick={() => void saveHosts()}>{t('saveHosts')}</button>
       {#if hostsSaved}<span role="status">{t('hostsSaved')}</span>{/if}
+    </section>
+    <section class="editor-tabs">
+      <h3>{t('editorTabs')}</h3>
+      <label>{t('editorTabLimit')}<input type="number" min="1" max="50" step="1" bind:value={tabLimit} /></label>
+      <button type="button" disabled={!Number.isInteger(tabLimit) || tabLimit < 1 || tabLimit > 50} onclick={() => void saveTabLimit()}>{t('saveTabLimit')}</button>
+      {#if tabLimitSaved}<span role="status">{t('tabLimitSaved')}</span>{/if}
     </section>
     <section>
       <h3>{t('contrastWarnings')}</h3>

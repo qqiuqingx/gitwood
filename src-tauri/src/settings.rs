@@ -147,6 +147,22 @@ pub struct RecentRepository {
     pub failed: bool,
 }
 
+/// IDEA's default editor tab limit (`UISettingsState.editorTabLimit`).
+pub const DEFAULT_EDITOR_TAB_LIMIT: u32 = 10;
+pub const EDITOR_TAB_LIMIT_RANGE: std::ops::RangeInclusive<u32> = 1..=50;
+
+pub fn validate_editor_tab_limit(limit: u32) -> Result<u32, String> {
+    if EDITOR_TAB_LIMIT_RANGE.contains(&limit) {
+        Ok(limit)
+    } else {
+        Err(format!(
+            "Editor tab limit must be between {} and {}",
+            EDITOR_TAB_LIMIT_RANGE.start(),
+            EDITOR_TAB_LIMIT_RANGE.end()
+        ))
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(default, rename_all = "camelCase")]
 pub struct Settings {
@@ -158,6 +174,8 @@ pub struct Settings {
     pub cherry_pick_add_suffix_to_published_commits: bool,
     pub empty_cherry_pick: gitwood_core::ops::history::EmptyCherryPick,
     pub hosting_hosts: HostingHosts,
+    /// Maximum open diff editor tabs per window (IDEA `editorTabLimit`).
+    pub editor_tab_limit: u32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
@@ -190,6 +208,7 @@ impl Default for Settings {
             cherry_pick_add_suffix_to_published_commits: true,
             empty_cherry_pick: gitwood_core::ops::history::EmptyCherryPick::Skip,
             hosting_hosts: HostingHosts::default(),
+            editor_tab_limit: DEFAULT_EDITOR_TAB_LIMIT,
         }
     }
 }
@@ -217,6 +236,9 @@ pub fn decode(json: &str) -> Result<Settings, String> {
     value.recent_repositories.truncate(20);
     if value.window.is_some_and(|r| r.width == 0 || r.height == 0) {
         value.window = None;
+    }
+    if validate_editor_tab_limit(value.editor_tab_limit).is_err() {
+        value.editor_tab_limit = DEFAULT_EDITOR_TAB_LIMIT;
     }
     Ok(value)
 }
@@ -390,6 +412,20 @@ impl SettingsStore {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn editor_tab_limit_defaults_to_idea_and_rejects_out_of_range_values() {
+        assert_eq!(Settings::default().editor_tab_limit, 10);
+        assert_eq!(validate_editor_tab_limit(1), Ok(1));
+        assert_eq!(validate_editor_tab_limit(50), Ok(50));
+        assert!(validate_editor_tab_limit(0).is_err());
+        assert!(validate_editor_tab_limit(51).is_err());
+        let missing = decode(r#"{"schemaVersion":1}"#).unwrap();
+        assert_eq!(missing.editor_tab_limit, 10);
+        let kept = decode(r#"{"schemaVersion":1,"editorTabLimit":4}"#).unwrap();
+        assert_eq!(kept.editor_tab_limit, 4);
+        let reset = decode(r#"{"schemaVersion":1,"editorTabLimit":0}"#).unwrap();
+        assert_eq!(reset.editor_tab_limit, 10);
+    }
     #[test]
     fn settings_roundtrip_preserves_hidden_ratios_and_window() {
         assert!(Settings::default().cherry_pick_add_suffix_to_published_commits);

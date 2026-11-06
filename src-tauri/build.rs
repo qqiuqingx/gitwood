@@ -16,6 +16,7 @@ fn main() {
             "update_native_menu_context",
             "save_layout",
             "save_history_preferences",
+            "save_editor_tab_limit",
             "set_tool_window",
             "finish_exit",
             "open_project",

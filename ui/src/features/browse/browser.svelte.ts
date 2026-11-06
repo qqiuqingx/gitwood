@@ -3,6 +3,7 @@ import { tick } from 'svelte';
 import { invoke } from '@tauri-apps/api/core';
 import { buildFilter, emptyFilter, mergeRefresh, preserveViewport, RequestGate } from './model';
 import type { Commit, CurrentFileSelection, FilterInput, HistoryRow, HostedRemote, NativeMenuActions, Opened, Recent, References, Refresh, RepositoryError, Rows, StatusSummary } from './types';
+import { DiffTabsModel } from '../diff/tabs.svelte';
 
 /** List row ID of a commit row that is not loaded yet. */
 export const placeholder = 'row:';
@@ -19,6 +20,7 @@ const nothing = (): Refresh => ({ status: false, refs: false, history: false });
 const everything = (): Refresh => ({ status: true, refs: true, history: true });
 export class RepositoryBrowser {
   commit = new CommitSession();
+  diffTabs = new DiffTabsModel();
   previewFile = $state<{ path: import('./types').RepoPath; staged: boolean; unstaged: boolean; hash: string } | null>(null);
   project = $state<Opened['repository'] | null>(null);
   recent = $state<Recent[]>([]);
@@ -72,7 +74,7 @@ export class RepositoryBrowser {
     this.commit = new CommitSession();
     const ticket = this.session.next();
     this.pages.invalidate(); this.selectionGate.invalidate();
-    this.previewFile = null; this.project = null; this.generation = 0; this.opening = true; this.error = null;
+    this.diffTabs.clear(); this.previewFile = null; this.project = null; this.generation = 0; this.opening = true; this.error = null;
     this.rows = new Map(); this.total = 0; this.status = null; this.statusRevision = 0; this.statusGeneration = 0; this.refs = null;
     this.selected = ''; this.selection = new Set(); this.currentFile = null; this.selectedChangeCount = 0; this.workflowBusy = false; this.nativeMenuActions = { hasRepository: false, actions: {} }; this.hostedRemotes = []; this.activeIndex = -1; this.scrollTop = 0; this.details = null;
     this.filter = emptyFilter(); this.pending = nothing();
@@ -94,7 +96,7 @@ export class RepositoryBrowser {
     if (this.commit.busy) return;
     this.commit = new CommitSession();
     this.session.invalidate(); this.pages.invalidate(); this.selectionGate.invalidate();
-    this.previewFile = null; this.project = null; this.generation = 0; this.rows = new Map(); this.selection = new Set(); this.currentFile = null; this.selectedChangeCount = 0; this.workflowBusy = false; this.nativeMenuActions = { hasRepository: false, actions: {} }; this.status = null; this.statusRevision = 0; this.statusGeneration = 0; this.refs = null; this.hostedRemotes = [];
+    this.diffTabs.clear(); this.previewFile = null; this.project = null; this.generation = 0; this.rows = new Map(); this.selection = new Set(); this.currentFile = null; this.selectedChangeCount = 0; this.workflowBusy = false; this.nativeMenuActions = { hasRepository: false, actions: {} }; this.status = null; this.statusRevision = 0; this.statusGeneration = 0; this.refs = null; this.hostedRemotes = [];
     this.details = null; this.pending = nothing(); this.opening = false;
     this.operations = this.operations.catch(() => {}).then(() => invoke('close_repository'));
     await this.operations;

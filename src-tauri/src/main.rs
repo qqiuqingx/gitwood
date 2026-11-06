@@ -194,6 +194,22 @@ fn save_history_preferences(
     Ok(())
 }
 
+#[tauri::command]
+fn save_editor_tab_limit(
+    app: AppHandle,
+    sessions: WindowSession,
+    store: State<'_, SettingsStore>,
+    limit: u32,
+) -> Result<(), String> {
+    let limit = settings::validate_editor_tab_limit(limit)?;
+    store.update(|settings| settings.editor_tab_limit = limit);
+    if let Some(error) = store.save_error() {
+        return Err(error);
+    }
+    let _ = sessions.emit(&app, "preferences-changed", store.snapshot());
+    Ok(())
+}
+
 #[derive(serde::Deserialize)]
 #[serde(rename_all = "lowercase")]
 enum ToolWindow {
@@ -397,6 +413,7 @@ fn main() {
             native_menu::update_native_menu_context,
             save_layout,
             save_history_preferences,
+            save_editor_tab_limit,
             set_tool_window,
             finish_exit,
             initial_repository,

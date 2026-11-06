@@ -12,7 +12,9 @@
   import { diffDecorations, editorExtensions, linePosition, lineBoundary, inclusionGutter, rollbackGutter } from './editor';
   import type { Content, DiffResult, Side } from './types';
 
-  let { left, right, result, fileKey = '', included = [], onblock, onrevert, disabled = false, ratio = $bindable(0.5) }: { included?: readonly number[]; onblock?: (index: number) => void; onrevert?: (index: number) => void; disabled?: boolean; fileKey?: string; left: string | Content; right: string | Content; result: DiffResult; ratio?: number } = $props();
+  export interface DiffPosition { left: number; right: number; selected: number }
+  export interface DiffNavigation { previous: () => void; next: () => void; canPrevious: () => boolean; canNext: () => boolean }
+  let { left, right, result, leftLabel = t('left'), rightLabel = t('right'), compactNavigation = false, fileKey = '', included = [], onblock, onrevert, disabled = false, ratio = $bindable(0.5), position = $bindable<DiffPosition>({ left: 0, right: 0, selected: -1 }), navigation = $bindable<DiffNavigation | null>(null) }: { leftLabel?: string; rightLabel?: string; compactNavigation?: boolean; included?: readonly number[]; onblock?: (index: number) => void; onrevert?: (index: number) => void; disabled?: boolean; fileKey?: string; left: string | Content; right: string | Content; result: DiffResult; ratio?: number; position?: DiffPosition; navigation?: DiffNavigation | null } = $props();
   function content(value: string | Content): Content {
     return typeof value === 'string' ? { kind: 'text', text: value, byteLen: new TextEncoder().encode(value).length,
       empty: !value.length, missingFinalNewline: !!value.length && !value.endsWith('\n') } : value;
@@ -46,7 +48,7 @@
     const compartments = { left: new Compartment(), right: new Compartment() };
     const expected = new Map<Side, number>();
     let source: Side | undefined;
-    selected = -1;
+    selected = position.selected < data.blocks.length ? position.selected : -1;
     bands = [];
     function expand(id: number) {
       expanded = expandFold(expanded, id);
@@ -119,7 +121,7 @@
       ] });
       const view = new EditorView({ state, parent: side === 'left' ? leftHost : rightHost });
       views[side] = view;
-      view.scrollDOM.scrollTop = preservedScroll(previousFileKey, currentFileKey, savedScroll[side]);
+      view.scrollDOM.scrollTop = preservedScroll(previousFileKey, currentFileKey, savedScroll[side], position[side]);
       view.dispatch({ effects: compartments[side].reconfigure(EditorView.decorations.of(diffDecorations(view.state, side, data, expanded, expand))) });
       view.scrollDOM.addEventListener('scroll', () => {
         const value = expected.get(side); expected.delete(side);
@@ -146,6 +148,7 @@
       }
       active = origin === views.left ? 'left' : 'right';
       selected = index;
+      position.selected = index;
       origin.focus();
       // Measure both targets together; asynchronous editor scroll effects would
       // otherwise look like a fresh user scroll and fight the counterpart jump.
@@ -166,6 +169,7 @@
         },
       });
     };
+    navigation = { previous: () => navigate?.(-1), next: () => navigate?.(1), canPrevious: () => data.blocks.length > 0 && selected !== 0, canNext: () => data.blocks.length > 0 && selected !== data.blocks.length - 1 };
     const actions = createActionRegistry();
     function currentBlock() {
       if(selected>=0)return selected;
@@ -184,8 +188,9 @@
     return () => {
       alive = false; observer.disconnect(); host.removeEventListener('keydown', keydown);
       for (const side of ['left', 'right'] as const) { const view = views[side]; if (view) { savedScroll[side] = view.scrollDOM.scrollTop; view.destroy(); } }
+      position.left = savedScroll.left; position.right = savedScroll.right; position.selected = selected;
       previousFileKey = currentFileKey;
-      navigate = undefined; resizeMeasure = undefined; updateMarkers=undefined;
+      navigate = undefined; resizeMeasure = undefined; updateMarkers=undefined; navigation = null;
     };
   });
   $effect(()=> { updateMarkers?.(included,disabled,onrevert,onblock); });
@@ -213,17 +218,17 @@
 </script>
 
 <div class="diff-view" bind:this={host} role="region" aria-label={t('diff')}>
-  <div class="navigation">
+  {#if !compactNavigation}<div class="navigation">
     <button type="button" title="Shift+F7" disabled={!result.blocks.length || selected === 0} onclick={() => navigate?.(-1)}>{t('previous')}</button>
     <button type="button" title="F7" disabled={!result.blocks.length || selected === result.blocks.length - 1} onclick={() => navigate?.(1)}>{t('next')}</button>
-  </div>
+  </div>{/if}
   <div class="panes" style:grid-template-columns={`${ratio}fr var(--diff-divider-width) ${1-ratio}fr`}>
     {#snippet pane(value: Content)}
       {#if value.kind !== 'text'}
         <div class="special">{t(value.kind)} · {value.byteLen} {t('bytes')}{#if value.kind === 'tooLarge'} / {value.limit} {t('bytes')}{/if}</div>
       {:else if value.empty}<div class="empty-state">{t('empty')}</div>{/if}
     {/snippet}
-    <h3 class="left">{t('left')}</h3>
+    <h3 class="left">{leftLabel}</h3>
     <section class="pane left" aria-label={t('left')}>
       {@render pane(leftContent)}
       <div class="editor" bind:this={leftHost} hidden={leftContent.kind !== 'text'}></div>
@@ -241,7 +246,7 @@
         {/each}
       </svg>
     </div>
-    <h3 class="right">{t('right')}</h3>
+    <h3 class="right">{rightLabel}</h3>
     <section class="pane right" aria-label={t('right')}>
       {@render pane(rightContent)}
       <div class="editor" bind:this={rightHost} hidden={rightContent.kind !== 'text'}></div>
@@ -252,9 +257,9 @@
 <style>
   .diff-view { height: 100%; display: flex; flex-direction: column; min-height: 0; color: var(--text-primary); background: var(--background-primary); }
   .navigation { display: flex; gap: var(--space-inline); padding: var(--space-panel-y); border-bottom: var(--border-width) solid var(--separator); }
-  button { font: inherit; color: var(--text-primary); background: var(--background-secondary); border: var(--border-width) solid var(--separator); }
-  button:disabled { color: var(--text-disabled); }
-  button:focus-visible, .middle:focus-visible { outline: var(--focus-width) solid var(--focus-border); outline-offset: calc(-1 * var(--focus-width)); }
+  .navigation button { font: inherit; color: var(--text-primary); background: var(--background-secondary); border: var(--border-width) solid var(--separator); }
+  .navigation button:disabled { color: var(--text-disabled); }
+  .navigation button:focus-visible, .middle:focus-visible { outline: var(--focus-width) solid var(--focus-border); outline-offset: calc(-1 * var(--focus-width)); }
   .panes { display: grid; grid-template-rows: auto minmax(0, 1fr) auto; flex: 1; min-height: 0; min-width: 0; }
   .pane { position: relative; display: flex; flex-direction: column; grid-row: 2; min-width: 0; min-height: 0; overflow: hidden; }
   .left { grid-column: 1; }

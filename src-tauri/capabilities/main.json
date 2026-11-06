@@ -22,6 +22,7 @@
     "allow-update-native-menu-context",
     "allow-save-layout",
     "allow-save-history-preferences",
+    "allow-save-editor-tab-limit",
     "allow-finish-exit",
     "core:event:allow-listen",
     "core:event:allow-unlisten",

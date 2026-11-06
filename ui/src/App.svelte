@@ -62,12 +62,13 @@
   import { appearance } from './theme/appearance.svelte';
   import HistoryPreferencesDialog from './features/git/HistoryPreferencesDialog.svelte';
   import ThemeSettingsDialog from './features/settings/ThemeSettingsDialog.svelte';
+  import { DEFAULT_DIFF_TAB_LIMIT } from './features/diff/tabs.svelte';
   import { historyMenuText } from './i18n/history-menu';
   import { nativeMenuLabels } from './i18n/native-menu';
   import { hostingRequestRemotes, publishedHostingRemotes } from './features/git/hosting-actions';
 
   type EmptyCherryPick = 'skip' | 'createEmpty';
-  interface Settings { theme: ThemeChoice; layout: Layout; cherryPickAddSuffixToPublishedCommits: boolean; emptyCherryPick: EmptyCherryPick }
+  interface Settings { theme: ThemeChoice; layout: Layout; cherryPickAddSuffixToPublishedCommits: boolean; emptyCherryPick: EmptyCherryPick; editorTabLimit: number }
   const locale = detectLocale(navigator.language);
   const t = (key: Parameters<typeof translate>[1]) => translate(locale, key);
   function togglePanel(panel: 'commit' | 'log') {
@@ -101,6 +102,8 @@
   let refreshThemeAfterDialog: () => void = () => {};
   let cherryPickAddSuffixToPublished = $state(true);
   let emptyCherryPick = $state<EmptyCherryPick>('skip');
+  let editorTabLimit = $state(DEFAULT_DIFF_TAB_LIMIT);
+  $effect(() => { browser.diffTabs.setLimit(editorTabLimit); });
   let lastLayout = '';
   let pendingSave = Promise.resolve();
 
@@ -212,6 +215,7 @@
         themeChoice = payload.theme;
         cherryPickAddSuffixToPublished = payload.cherryPickAddSuffixToPublishedCommits;
         emptyCherryPick = payload.emptyCherryPick;
+        editorTabLimit = payload.editorTabLimit;
         void refreshTheme(true);
       });
       if (disposed) { unlisten(); return; }
@@ -244,6 +248,7 @@
       themeChoice = response.settings.theme;
       cherryPickAddSuffixToPublished = response.settings.cherryPickAddSuffixToPublishedCommits;
       emptyCherryPick = response.settings.emptyCherryPick;
+      editorTabLimit = response.settings.editorTabLimit;
       settingsError = response.error ?? '';
       lastLayout = JSON.stringify(layoutRequest(layout));
       ready = true;
@@ -338,7 +343,7 @@
 {#if projects.pending}<OpenProjectDialog path={projects.pending} choose={target => { void projects.choose(target); }} cancel={() => projects.cancel()} />{/if}
 </main>
 {#if historyPreferencesOpen}<HistoryPreferencesDialog suffix={cherryPickAddSuffixToPublished} empty={emptyCherryPick} onclose={() => { historyPreferencesOpen = false; }} />{/if}
-{#if themeDialogOpen}<ThemeSettingsDialog {locale} currentTheme={themeChoice} {previewTheme} onclose={closeThemeDialog} />{/if}
+{#if themeDialogOpen}<ThemeSettingsDialog {locale} {editorTabLimit} currentTheme={themeChoice} {previewTheme} onclose={closeThemeDialog} />{/if}
 <style>
   main { display: flex; flex-direction: column; height: 100%; }
   header, footer { display: flex; align-items: center; gap: var(--space-inline); flex: none; padding: var(--space-header-y) var(--space-panel-x); background: var(--background-header); color: var(--text-header); border-bottom: var(--border-width) solid var(--separator); }

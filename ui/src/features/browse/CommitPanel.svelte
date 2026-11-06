@@ -25,12 +25,19 @@
   import { hostingHandlers, publishedHostingRemotes } from '../git/hosting-actions';
   import { revealText } from '../../i18n/reveal';
   import { browseText as t } from '../../i18n/browse';
+  import type { DiffTabInput } from '../diff/tabs.svelte';
   let { browser, refresh, commitPush = () => {}, onfocuscommit = () => {}, oncurrentfile = () => {}, flat = $bindable(true), preview = $bindable(true) }: { browser: RepositoryBrowser; refresh: () => void; commitPush?: () => void; onfocuscommit?: () => void | Promise<void>; oncurrentfile?: (action: CurrentFileAction, path: import('./types').RepoPath, revision?: string) => void; flat?: boolean; preview?: boolean } = $props();
   let selectedFile = $state<FileRow>();
   let optionsAnchor = $state<HTMLButtonElement | null>(null);
+  function diffInput(row: FileRow): DiffTabInput | null {
+    if (!row.path) return null;
+    return { source: 'worktree', path: row.path, hash: '', revision: 'HEAD',
+      leftRevision: 'HEAD', rightRevision: 'Working tree', staged: row.staged, unstaged: row.unstaged, area: 'commit' };
+  }
   function previewFile(row: FileRow) {
     if (row.conflicted) return;
-    if (row.path) browser.previewFile = { path: row.path, staged: row.staged, unstaged: row.unstaged, hash: '' };
+    const input = diffInput(row);
+    if (input) { browser.previewFile = { path: row.path!, staged: row.staged, unstaged: row.unstaged, hash: '' }; browser.diffTabs.preview(input); }
   }
   function selectFile(row: FileRow) {
     selectedFile = row;
@@ -102,7 +109,12 @@
     if(event.key==='Escape' && history){event.preventDefault();history=false;messageBox.focus();return;}
     actions.dispatch(event,keymapFor(detectPlatform(navigator.platform)),event.target instanceof HTMLElement && !!event.target.closest('input,textarea,select'));
   }
-  async function openDiff() {if(selectedFile?.conflicted) { requestResolution(); return; } if(selectedFile)previewFile(selectedFile);await tick(); document.querySelector<HTMLElement>('.diff-view .cm-content')?.focus();}
+  async function openDiff() {
+    if (selectedFile?.conflicted) { requestResolution(); return; }
+    const input = selectedFile && diffInput(selectedFile);
+    if (input) { browser.previewFile = { path: input.path, staged: input.staged, unstaged: input.unstaged, hash: '' }; browser.diffTabs.open(input); }
+    await tick(); document.querySelector<HTMLElement>('.diff-view .cm-content')?.focus();
+  }
   function contextMenu(event: MouseEvent, row: FileRow) {
     if (!row.path) return;
     event.preventDefault(); selectFile(row);

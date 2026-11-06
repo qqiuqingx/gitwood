@@ -12,5 +12,5 @@ it('invalidates an old request after selection or refresh', () => {
  const gate = new RequestGate(); const first = gate.next(); gate.next(); expect(gate.accepts(first)).toBe(false);
 });
 it('keeps scroll on content refresh, resets on file or area change', () => {
- expect(preservedScroll('a', 'a', 420)).toBe(420); expect(preservedScroll('a', 'b', 420)).toBe(0);
+ expect(preservedScroll('a', 'a', 420)).toBe(420); expect(preservedScroll('a', 'b', 420)).toBe(0); expect(preservedScroll('a', 'b', 420, 96)).toBe(96); expect(preservedScroll('', 'b', 0, 96)).toBe(96);
 });
