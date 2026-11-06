@@ -178,7 +178,6 @@ fn save_layout(
 #[tauri::command]
 fn save_history_preferences(
     app: AppHandle,
-    sessions: WindowSession,
     store: State<'_, SettingsStore>,
     add_suffix_to_published: bool,
     empty_cherry_pick: gitwood_core::ops::history::EmptyCherryPick,
@@ -190,14 +189,14 @@ fn save_history_preferences(
     if let Some(error) = store.save_error() {
         return Err(error);
     }
-    let _ = sessions.emit(&app, "preferences-changed", store.snapshot());
+    // Shared preferences apply to every project window, each keeping its own layout.
+    publish_preferences(&app, &store);
     Ok(())
 }
 
 #[tauri::command]
 fn save_editor_tab_limit(
     app: AppHandle,
-    sessions: WindowSession,
     store: State<'_, SettingsStore>,
     limit: u32,
 ) -> Result<(), String> {
@@ -206,7 +205,8 @@ fn save_editor_tab_limit(
     if let Some(error) = store.save_error() {
         return Err(error);
     }
-    let _ = sessions.emit(&app, "preferences-changed", store.snapshot());
+    // Shared preferences apply to every project window, each keeping its own layout.
+    publish_preferences(&app, &store);
     Ok(())
 }
 
